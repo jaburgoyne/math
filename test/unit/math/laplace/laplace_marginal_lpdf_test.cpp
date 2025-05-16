@@ -414,7 +414,7 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle) {
       std::pair(laplace_issue{1, 300, 1}, LaplaceFailures::HessianFailure),
       std::pair(laplace_issue{1, 400, 1}, LaplaceFailures::HessianFailure),
       std::pair(laplace_issue{1, 500, 1}, LaplaceFailures::HessianFailure),
-      std::pair(laplace_issue{1, 0, 2}, LaplaceFailures::SqrtDNE),
+      std::pair(laplace_issue{1, 0, 2}, LaplaceFailures::None),
       std::pair(laplace_issue{1, 100, 2}, LaplaceFailures::SqrtDNE),
       std::pair(laplace_issue{1, 200, 2}, LaplaceFailures::SqrtDNE),
       std::pair(laplace_issue{1, 300, 2}, LaplaceFailures::SqrtDNE),
@@ -506,7 +506,14 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle) {
           } catch (const std::domain_error& e) {
             using stan::math::test::err_to_laplace_failure;
             LaplaceFailures err_val = err_to_laplace_failure(e);
-            EXPECT_EQ(err_val, flag_val);
+            EXPECT_EQ(err_val, flag_val) <<
+                "Error: " << e.what()
+                          << "\n\terr_val: " << to_string(err_val)
+                          << "\n\tflag_val: " << to_string(flag_val)
+                          << "\n\tsolver_num: " << solver_num
+                          << "\n\tmax_steps_line_search: "
+                          << max_steps_line_search
+                          << "\n\thessian_block_size: " << hessian_block_size;
           }
           stan::math::recover_memory();
         } else {
