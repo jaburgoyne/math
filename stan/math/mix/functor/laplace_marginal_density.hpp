@@ -406,7 +406,7 @@ inline auto laplace_marginal_density_est(LLFun&& ll_fun, LLTupleArgs&& ll_args,
   Eigen::MatrixXd B(theta_size, theta_size);
   Eigen::VectorXd a(theta_size);
   Eigen::VectorXd b(theta_size);
-  if (options.solver == 1 && options.hessian_block_size == 1) {
+  if (options.solver == 1) {
     if (options.hessian_block_size == 1) {
       for (Eigen::Index i = 0; i <= options.max_num_steps; i++) {
           auto [theta_grad, W] = laplace_likelihood::diff(
@@ -414,27 +414,30 @@ inline auto laplace_marginal_density_est(LLFun&& ll_fun, LLTupleArgs&& ll_args,
 
           // Compute matrix square-root of W. If all elements of W are positive,
           // do an element wise square-root. Else try a matrix square-root
+          Eigen::VectorXd W_r(W.rows());
           for (Eigen::Index i = 0; i < W.rows(); i++) {
             // TODO(Steve) compute sqrt here
             if (W.coeff(i, i) < 0) {
               throw std::domain_error(
                   "laplace_marginal_density: Hessian matrix is not positive "
                   "definite");
+            } else {
+              W_r.coeffRef(i) = std::sqrt(W.coeff(i, i));
             }
           }
-          Eigen::SparseMatrix<double> W_r = W.cwiseSqrt();
-          Eigen::Map<const Eigen::VectorXd> W_r_diag(W_r.valuePtr(), W_r.nonZeros());
+//          Eigen::SparseMatrix<double> W_r = W.cwiseSqrt();
+//          Eigen::Map<const Eigen::VectorXd> W_r_diag(W_r.valuePtr(), W_r.nonZeros());
           B.noalias() = MatrixXd::Identity(theta_size, theta_size)
-                        + W_r_diag.asDiagonal() * covariance
-                              * W_r_diag.asDiagonal();
+                        + W_r.asDiagonal() * covariance
+                              * W_r.asDiagonal();
           Eigen::LLT<Eigen::Ref<Eigen::MatrixXd>> llt_B(B);
           auto L = llt_B.matrixL();
           auto LT = llt_B.matrixU();
           b.noalias() = W.diagonal().cwiseProduct(theta) + theta_grad;
           a.noalias() = b
-                        - W_r
+                        - W_r.asDiagonal()
                               * LT.solve(L.solve(
-                                  W_r_diag.cwiseProduct(covariance * b)));
+                                  W_r.cwiseProduct(covariance * b)));
           // Simple Newton step
           theta.noalias() = covariance * a;
           objective_old = objective_new;
@@ -458,7 +461,7 @@ inline auto laplace_marginal_density_est(LLFun&& ll_fun, LLTupleArgs&& ll_args,
                 objective_new - 0.5 * B_log_determinant,
                 std::move(covariance),
                 std::move(theta),
-                std::move(W_r),
+                std::move(Eigen::SparseMatrix<double>(W_r.asDiagonal())),
                 std::move(Eigen::MatrixXd(L)),
                 std::move(a),
                 std::move(theta_grad),
@@ -963,24 +966,16 @@ inline auto laplace_marginal_density(const LLFun& ll_fun, LLTupleArgs&& ll_args,
             md_est.W_r.valuePtr(), md_est.W_r.nonZeros());
         Eigen::MatrixXd tmp = solveLowerWithDiag(md_est.L, W_r_diag);
         R = tmp.transpose() * tmp;
+        if constexpr (!ll_args_contain_var) {
+          arena_t<Eigen::MatrixXd> C = md_est.L.template triangularView<Eigen::Lower>().solve(W_r_diag.asDiagonal() * md_est.covariance);
+          s2.deep_copy(
+              (0.5
+               * (md_est.covariance.diagonal() - (C.transpose() * C).diagonal())
+                     .cwiseProduct(laplace_likelihood::third_diff(
+                         ll_fun, md_est.theta, value_of(ll_args_copy), msgs))));
+        }
       } else {
-        Eigen::Map<const Eigen::VectorXd> W_r_diag(
-            md_est.W_r.valuePtr(), md_est.W_r.nonZeros());
-        Eigen::MatrixXd tmp
-            = md_est.L.template triangularView<Eigen::Lower>().solve(
-                md_est.W_r.toDense());
-        R = tmp.transpose() * tmp;
-      }
-      arena_t<Eigen::MatrixXd> C
-          = md_est.L.template triangularView<Eigen::Lower>().solve(
-              md_est.W_r * md_est.covariance);
-      if (!ll_args_contain_var && options.hessian_block_size == 1) {
-        s2.deep_copy(
-            (0.5
-             * (md_est.covariance.diagonal() - (C.transpose() * C).diagonal())
-                   .cwiseProduct(laplace_likelihood::third_diff(
-                       ll_fun, md_est.theta, value_of(ll_args_copy), msgs))));
-      } else {
+        arena_t<Eigen::MatrixXd> C = md_est.L.template triangularView<Eigen::Lower>().solve(md_est.W_r * md_est.covariance);
         arena_t<Eigen::MatrixXd> A = md_est.covariance - C.transpose() * C;
         auto s2_tmp = laplace_likelihood::compute_s2(ll_fun, md_est.theta, A,
                                                      options.hessian_block_size,
@@ -988,6 +983,10 @@ inline auto laplace_marginal_density(const LLFun& ll_fun, LLTupleArgs&& ll_args,
         s2.deep_copy(s2_tmp);
         copy_compute_s2(partial_parm, ll_args_filter);
         set_zero_adjoint(ll_args_filter);
+        Eigen::MatrixXd tmp
+            = md_est.L.template triangularView<Eigen::Lower>().solve(
+                md_est.W_r.toDense());
+        R = tmp.transpose() * tmp;
       }
     } else if (options.solver == 2) {
       R = md_est.W_r
