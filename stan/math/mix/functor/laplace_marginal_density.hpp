@@ -847,6 +847,25 @@ static constexpr bool is_dbl_nothrow_constructible_v
     = std::is_nothrow_constructible<
         promote_scalar_t<double, std::decay_t<T>>>::value;
 
+namespace internal {
+  template <typename T>
+  struct contains_tuple {
+    static constexpr bool value = false;
+  };
+  template <typename... Args, typename... VecArgs>
+  struct contains_tuple<std::vector<std::tuple<Args...>, VecArgs...>> {
+    static constexpr bool value = true;
+  };
+  template <typename T, typename... VecArgs>
+  struct contains_tuple<std::vector<T, VecArgs...>> {
+    static constexpr bool value = contains_tuple<std::decay_t<T>>::value;
+  };
+}
+template <typename T>
+using is_vector_contains_tuple
+    = internal::contains_tuple<std::decay_t<T>>;
+
+            
 template <typename Output>
 inline constexpr auto make_zero(Output&& output) {
   if constexpr (is_tuple_v<Output>) {
@@ -855,7 +874,7 @@ inline constexpr auto make_zero(Output&& output) {
   } else if constexpr (is_std_vector_v<Output>) {
     if constexpr (!is_var_v<value_type_t<Output>>) {
       const auto output_size = output.size();
-      arena_t<promote_scalar_t<double, Output>> ret;
+      std::vector<decltype(make_zero(output[0]))> ret;
       ret.reserve(output_size);
       for (Eigen::Index i = 0; i < output_size; ++i) {
         ret.push_back(make_zero(output[i]));
@@ -873,9 +892,11 @@ inline constexpr auto make_zero(Output&& output) {
   }
 }
 
-template <typename Output, require_t<is_any_var_scalar<Output>>* = nullptr>
+template <typename Output>
 inline void print_adjoint(Output&& output) {
-  if constexpr (is_tuple_v<Output>) {
+  if constexpr (!is_any_var_scalar<Output>::value) {
+    return;
+  } else if constexpr (is_tuple_v<Output>) {
     std::cout << "tuple adj\n";
     return stan::math::for_each(
         [](auto&& output_i) { return print_adjoint(output_i); }, output);
@@ -910,6 +931,10 @@ inline void laplace_tuple_collect_adjoints(var ret, Arg&& arg,
               std::forward<decltype(inner_precalc)>(inner_precalc));
         },
         std::forward<Arg>(arg), std::forward<Precalc>(precalc));
+  } else if constexpr (is_vector_contains_tuple<Arg>::value) {
+    for (std::size_t i = 0; i < arg.size(); ++i) {
+      laplace_tuple_collect_adjoints(ret, arg[i], precalc[i]);
+    }
   } else {
     reverse_pass_callback(
         [vi = ret.vi_, arg_arena = to_arena(std::forward<Arg>(arg)),
