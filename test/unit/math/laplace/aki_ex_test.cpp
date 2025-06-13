@@ -12,61 +12,17 @@
 #include <fstream>
 #include <vector>
 
-// --- Minimal stubs for the Stan functors and math calls ---
-
-// real poisson_re_log_ll(vector, data array[] int, vector)
-template <typename T0__, typename T2__>
-stan::return_type_t<stan::base_type_t<T0__>, stan::base_type_t<T2__>>
-poisson_re_log_ll(const T0__& theta_arg__, const std::vector<int>& y,
-                  const T2__& mu_arg__, std::ostream* pstream__) {
-  using local_scalar_t__ = stan::return_type_t<stan::base_type_t<T0__>,
-                             stan::base_type_t<T2__>>;
-  const auto& theta = stan::math::to_ref(theta_arg__);
-  const auto& mu = stan::math::to_ref(mu_arg__);
-    return stan::math::poisson_log_lpmf<false>(y, stan::math::add(stan::math::as_column_vector_or_scalar(mu), theta));
-
-}
-
-// matrix cov_fun(real, data int)
-template <typename T0__>
-Eigen::Matrix<stan::return_type_t<T0__>,-1,-1>
-cov_fun(const T0__& sigma, const int& N, std::ostream* pstream__) {
-  using local_scalar_t__ = stan::return_type_t<T0__>;
-    return stan::math::diag_matrix(
-             stan::math::rep_vector(stan::math::pow(sigma, 2), N));
-
-}
-
-// real integrand(real, real, array[] real, array[] real, array[] int)
-template <typename T0__, typename T1__, typename T2__, typename T3__,
-          typename T4__>
-stan::return_type_t<T0__, T1__, stan::base_type_t<T2__>,
-  stan::base_type_t<T3__>>
-integrand(const T0__& theta, const T1__& notused, const T2__& phi,
-          const T3__& X_i, const T4__& y_i, std::ostream* pstream__) {
-  using local_scalar_t__ = stan::return_type_t<T0__, T1__,
-                             stan::base_type_t<T2__>,
-                             stan::base_type_t<T3__>>;
-  // suppress unused var warning
-  static constexpr bool propto__ = true;
-  local_scalar_t__ DUMMY_VAR__(std::numeric_limits<double>::quiet_NaN());
-    local_scalar_t__ sigma = DUMMY_VAR__;
-    sigma = phi(0);
-    local_scalar_t__ mu = DUMMY_VAR__;
-    mu = phi(1);
-    local_scalar_t__ p = DUMMY_VAR__;
-    p = stan::math::exp((stan::math::normal_lpdf<false>(theta, 0, sigma) +
-          stan::math::poisson_log_lpmf<false>(y_i, (theta + mu))));
-    return p;
-
-}
 
 struct poisson_re_log_ll_functor__ {
   template <typename T0__, typename T2__>
   stan::return_type_t<stan::base_type_t<T0__>, stan::base_type_t<T2__>>
-  operator()(const T0__& theta, const std::vector<int>& y, const T2__& mu,
+  operator()(const T0__& theta_arg__, const std::vector<int>& y_arg__, const T2__& mu_arg__,
              std::ostream* pstream__) const {
-    return poisson_re_log_ll(theta, y, mu, pstream__);
+    using local_scalar_t__ = stan::return_type_t<stan::base_type_t<T0__>,
+                              stan::base_type_t<T2__>>;
+    const auto& theta = stan::math::to_ref(theta_arg__);
+    const auto& mu = stan::math::to_ref(mu_arg__);
+    return stan::math::poisson_log_lpmf<false>(y_arg__, stan::math::add(stan::math::as_column_vector_or_scalar(mu), theta));
   }
 };
 struct integrand_functor__ {
@@ -76,14 +32,25 @@ struct integrand_functor__ {
     stan::base_type_t<T3__>>
   operator()(const T0__& theta, const T1__& notused, const T2__& phi,
              const T3__& X_i, const T4__& y_i, std::ostream* pstream__) const {
-    return integrand(theta, notused, phi, X_i, y_i, pstream__);
+    using local_scalar_t__ = stan::return_type_t<T0__, T1__,
+                              stan::base_type_t<T2__>,
+                              stan::base_type_t<T3__>>;
+    // suppress unused var warning
+    static constexpr bool propto__ = true;
+    local_scalar_t__ sigma = phi[0];
+    local_scalar_t__ mu = phi[1];
+    local_scalar_t__ p = stan::math::exp((stan::math::normal_lpdf<false>(theta, 0, sigma) +
+          stan::math::poisson_log_lpmf<false>(y_i, (theta + mu))));
+    return p;
   }
 };
 struct cov_fun_functor__ {
   template <typename T0__>
   Eigen::Matrix<stan::return_type_t<T0__>,-1,-1>
   operator()(const T0__& sigma, const int& N, std::ostream* pstream__) const {
-    return cov_fun(sigma, N, pstream__);
+  using local_scalar_t__ = stan::return_type_t<T0__>;
+  return stan::math::diag_matrix(
+             stan::math::rep_vector(stan::math::pow(sigma, 2), N));
   }
 };
 
@@ -110,10 +77,7 @@ TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
       integrand_functor__(),
       stan::math::negative_infinity(),
       stan::math::positive_infinity(),
-      stan::math::append_array(
-        std::vector<double>{sigmaz},
-        std::vector<double>{ mu[i-1] }
-      ),
+      std::vector<double>{sigmaz, mu[i-1]},
       std::vector<double>{0},
       std::vector<int>{ y[i-1] },
       pstream__,
