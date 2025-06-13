@@ -23,7 +23,7 @@ poisson_re_log_ll(const T0__& theta_arg__, const std::vector<int>& y,
                              stan::base_type_t<T2__>>;
   const auto& theta = stan::math::to_ref(theta_arg__);
   const auto& mu = stan::math::to_ref(mu_arg__);
-    return stan::math::poisson_log_lpmf<false>(y, stan::math::add(mu, theta));
+    return stan::math::poisson_log_lpmf<false>(y, stan::math::add(stan::math::as_column_vector_or_scalar(mu), theta));
 
 }
 
@@ -51,16 +51,12 @@ integrand(const T0__& theta, const T1__& notused, const T2__& phi,
   static constexpr bool propto__ = true;
   local_scalar_t__ DUMMY_VAR__(std::numeric_limits<double>::quiet_NaN());
     local_scalar_t__ sigma = DUMMY_VAR__;
-    current_statement__ = 23;
     sigma = phi(0);
     local_scalar_t__ mu = DUMMY_VAR__;
-    current_statement__ = 24;
     mu = phi(1);
     local_scalar_t__ p = DUMMY_VAR__;
-    current_statement__ = 25;
     p = stan::math::exp((stan::math::normal_lpdf<false>(theta, 0, sigma) +
           stan::math::poisson_log_lpmf<false>(y_i, (theta + mu))));
-    current_statement__ = 26;
     return p;
 
 }
