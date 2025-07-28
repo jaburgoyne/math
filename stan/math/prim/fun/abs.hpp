@@ -50,11 +50,7 @@ inline auto abs(T&& x) {
 struct abs_fun {
   template <typename T>
   static inline auto fun(T&& x) {
-    if constexpr (std::is_arithmetic_v<std::decay_t<T>>) {
-      return std::abs(x);
-    } else {
-      return abs(std::forward<T>(x));
-    }
+    return abs(std::forward<T>(x));
   }
 };
 
@@ -84,8 +80,7 @@ template <typename Container,
           require_container_bt<std::is_arithmetic, Container>* = nullptr>
 inline auto abs(Container&& x) {
   return apply_vector_unary<Container>::apply(
-      std::forward<Container>(x),
-      [&](const auto& v) { return v.array().abs(); });
+      std::forward<Container>(x), [&](auto&& v) { return v.array().abs(); });
 }
 
 namespace internal {

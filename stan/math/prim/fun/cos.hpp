@@ -47,11 +47,7 @@ inline auto cos(const T x) {
 struct cos_fun {
   template <typename T>
   static inline auto fun(T&& x) {
-    if constexpr (std::is_arithmetic_v<std::decay_t<T>>) {
-      return std::cos(x);
-    } else {
-      return cos(std::forward<T>(x));
-    }
+    return cos(std::forward<T>(x));
   }
 };
 
@@ -81,8 +77,7 @@ template <typename Container,
           require_container_bt<std::is_arithmetic, Container>* = nullptr>
 inline auto cos(Container&& x) {
   return apply_vector_unary<Container>::apply(
-      std::forward<Container>(x),
-      [&](const auto& v) { return v.array().cos(); });
+      std::forward<Container>(x), [&](auto&& v) { return v.array().cos(); });
 }
 
 namespace internal {

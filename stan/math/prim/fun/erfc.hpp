@@ -24,11 +24,7 @@ inline auto erfc(T&& x) {
 struct erfc_fun {
   template <typename T>
   static inline auto fun(T&& x) {
-    if constexpr (std::is_arithmetic_v<std::decay_t<T>>) {
-      return std::erfc(x);
-    } else {
-      return erfc(std::forward<T>(x));
-    }
+    return erfc(std::forward<T>(x));
   }
 };
 
@@ -45,7 +41,7 @@ template <
     require_all_not_nonscalar_prim_or_rev_kernel_expression_t<T>* = nullptr,
     require_container_t<T>* = nullptr, require_not_var_matrix_t<T>* = nullptr>
 inline auto erfc(T&& x) {
-  return apply_scalar_unary<erfc_fun, T>::apply(x);
+  return apply_scalar_unary<erfc_fun, T>::apply(std::forward<T>(x));
 }
 
 }  // namespace math

@@ -25,11 +25,7 @@ struct exp2_fun {
    */
   template <typename T>
   static inline auto fun(T&& x) {
-    if constexpr (std::is_arithmetic_v<std::decay_t<T>>) {
-      return std::exp2(x);
-    } else {
-      return exp2(std::forward<T>(x));
-    }
+    return exp2(std::forward<T>(x));
   }
 };
 
@@ -47,7 +43,7 @@ template <
     require_all_not_nonscalar_prim_or_rev_kernel_expression_t<T>* = nullptr,
     require_container_t<T>* = nullptr, require_not_var_matrix_t<T>* = nullptr>
 inline auto exp2(T&& x) {
-  return apply_scalar_unary<exp2_fun, T>::apply(x);
+  return apply_scalar_unary<exp2_fun, T>::apply(std::forward<T>(x));
 }
 
 }  // namespace math
