@@ -13,7 +13,7 @@
 #include <unsupported/Eigen/MatrixFunctions>
 #include <cmath>
 #include <optional>
-//#define LAPLACE_DEBUG
+#define LAPLACE_DEBUG
 #ifdef LAPLACE_DEBUG
 #include <iomanip>
 #endif
@@ -574,7 +574,8 @@ inline wolfe_return wolfe_line_search(Eigen::VectorXd& theta, double& obj_init,
   const Eigen::VectorXd p = a - a_prev;
   const Eigen::VectorXd g0 = -covariance * a_prev + covariance * theta_grad;
   const double dir_deriv_init = g0.dot(p);
-  double alpha_high = alpha_init * 2;
+  // We start with the suggested value. Then double or halve based on first result
+  double alpha_high = alpha_init;
   Eigen::VectorXd a_try = a_prev + alpha_high * p;
   Eigen::VectorXd theta_try = covariance * a_try;
   theta_grad = laplace_likelihood::theta_grad(ll_fun, theta_try, ll_args, msgs);
@@ -588,6 +589,31 @@ inline wolfe_return wolfe_line_search(Eigen::VectorXd& theta, double& obj_init,
             << theta_try.transpose().eval() << std::endl;
   std::cout << "First loop: \n";
 #endif
+  {
+    const bool finite_ok = std::isfinite(obj_high) && theta_try.allFinite();
+    if (!finite_ok) {                      //   f or g is NaN/Inf → shrink
+      alpha_high *= 0.5;
+      if (alpha_high < opt.line_search.min_alpha) {
+        alpha_high = 1;
+      };
+    }
+    const bool armijo_ok = check_armijo(obj_high, obj_init,
+                                        alpha_high, dir_deriv_init, opt);
+
+    // 3. Armijo test drives all decisions
+    if (armijo_ok) {                       // Armijo ✓
+      const bool curve_ok  = check_wolfe_curve(dir_deriv_high, dir_deriv_init, opt);
+      if (curve_ok) {
+        a.swap(a_try);
+        theta.swap(theta_try);
+        obj_init   = obj_high;
+        alpha_init = alpha_high;
+        return wolfe_return::PASS;
+      } else {
+        alpha_high *= 2.0;
+      }
+    }
+  }
   int loop_iter = 0;
   const auto grad_tol = opt.line_search.abs_grad_threshold;
   const auto obj_tol = opt.line_search.abs_obj_threshold;
@@ -617,7 +643,6 @@ inline wolfe_return wolfe_line_search(Eigen::VectorXd& theta, double& obj_init,
     }
     const bool armijo_ok = check_armijo(obj_high, obj_init,
                                         alpha_high, dir_deriv_init, opt);
-
     // 3. Armijo test drives all decisions
     if (armijo_ok) {                       // Armijo ✓
       const bool curve_ok  = check_wolfe_curve(dir_deriv_high, dir_deriv_init, opt);
@@ -1069,6 +1094,7 @@ inline auto laplace_marginal_density_est(
             (d0_dir < 0.0) ? -g0_dir / d0_dir     // concave => quadratic maximiser
                           : step_size;                 // fallback if H says ‘convex’
         step_size = newton_step_size <= 0.2 ? step_size : newton_step_size;
+        step_size = std::clamp(step_size, options.line_search.min_alpha, 3.0);
 
         auto ok = internal::wolfe_line_search(
             theta, objective_new, step_size, theta_grad, a, a_prev, ll_fun,
@@ -1099,6 +1125,7 @@ inline auto laplace_marginal_density_est(
     Eigen::MatrixXd K_root
         = covariance.template selfadjointView<Eigen::Lower>().llt().matrixL();
     for (Eigen::Index i = 0; i <= options.max_num_steps; i++) {
+      std::cout << "=======\nIter: " << i << " \n";
       auto W = laplace_likelihood::block_hessian(
           ll_fun, theta, options.hessian_block_size, ll_args, msgs);
       B.noalias() = MatrixXd::Identity(theta_size, theta_size)
