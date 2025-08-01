@@ -309,7 +309,7 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle_basic) {
   constexpr double tolerance = 1e-08;
   constexpr int max_num_steps = 100;
   constexpr int hessian_block_size = 2;
-  solver = 2;
+  solver = 3;
   constexpr int do_line_search = 1;
   constexpr int max_steps_line_search = 300;
 
@@ -327,7 +327,7 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle_ad) {
   using stan::math::laplace_marginal;
   using stan::math::laplace_marginal_tol;
   using stan::math::value_of;
-  constexpr double tolerance = 1e-6;
+  constexpr double tolerance = 1e-10;
   constexpr int max_num_steps = 1000;
   auto phi_0 = phi_dbl(0);
   auto phi_1 = phi_dbl(1);
