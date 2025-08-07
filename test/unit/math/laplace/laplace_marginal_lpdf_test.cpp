@@ -353,6 +353,9 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle) {
           continue;
         }
         auto f = [&](auto&& y_v, auto&& phi_01_v, auto&& phi_rest_v) {
+//          if constexpr (stan::is_var_v<stan::return_type_t<decltype(y_v), decltype(phi_01_v), decltype(phi_rest_v)>>) {
+//            std::cout << "laplace_start: \n";
+//          }
           return laplace_marginal_tol<false>(
               normal_likelihood{}, std::forward_as_tuple(y_v, n_obs),
               covariance_motorcycle_functor{},
@@ -462,11 +465,6 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle2) {
       [&](int solver_num, int hessian_block_size, int max_steps_line_search,
           auto&& theta_0) {
         auto f = [&](auto&& sigma_global_v, auto&& length_scale_v, auto&& sigma_v) {
-          /*
-          if constexpr (stan::is_var_v<stan::return_type_t<decltype(sigma_global_v), decltype(length_scale_v), decltype(sigma_v)>>) {
-            std::cout << "laplace_start: \n";
-          }
-          */
           return laplace_marginal_tol<false>(
               normal_likelihood2{}, std::forward_as_tuple(y, n_obs, sigma_global_v),
               covariance_motorcycle_functor{},
