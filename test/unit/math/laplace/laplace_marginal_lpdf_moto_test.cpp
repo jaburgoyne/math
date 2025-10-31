@@ -164,7 +164,7 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle_ad) {
             .field("event","laplace_marginal_tol_call")
             .field("v_level", 0)
             .field("run_num", ++run_num)
-            .begin_object("solver")
+            .begin_object("test")
               .field("solver_num", solver_num)
               .field("hessian_block_size", hessian_block_size)
               .field("max_steps_line_search", max_steps_line_search)
