@@ -2,6 +2,7 @@
 #define STAN_MATH_MIX_FUNCTOR_WOLFE_LINE_SEARCH_HPP
 
 #include <stan/math/prim/fun/Eigen.hpp>
+#include <stan/math/mix/functor/json_logger.hpp>
 #include <stan/math/mix/functor/laplace_likelihood.hpp>
 #include <stan/math/rev/meta.hpp>
 #include <stan/math/rev/core.hpp>
@@ -699,6 +700,28 @@ struct WolfeInfo {
 template <typename Info, typename UpdateFun, typename Options, typename Stream>
 inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
                                      Options&& opt, Stream* msgs) {
+
+  auto __t0 = std::chrono::high_resolution_clock::now();
+  auto init_alpha = wolfe_info.curr_.alpha();
+  auto __log_return = [&](WolfeStatus ws) {
+    auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::high_resolution_clock::now() - __t0).count();
+    auto __b = JLOG().builder();
+    __b.field("component","wolfe_line_search")
+       .field("where", "wolfe_return")
+       .field("event", "wolfe_return")
+       .field("v_level", 2)
+       .field("v_alpha_init", init_alpha)
+       .field("v_alpha_final", wolfe_info.curr_.alpha())
+       .field("v_obj_init", wolfe_info.prev_.obj())
+       .field("v_obj_final", wolfe_info.curr_.obj())
+       .field("v_ns",(long long)__ns)
+       .field("v_num_evals", ws.num_evals_)
+       .field("v_num_backtracks", ws.num_backtracks_)
+       .field("ret_code", wolfe_status_str(ws));
+    JLOG().commit_now(JsonLogger::Level::Debug, "wolfe", __b);
+    return ws;
+  };
   auto& curr = wolfe_info.curr_;
   auto& prev = wolfe_info.prev_;
   auto& scratch = wolfe_info.scratch_;
@@ -720,7 +743,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
     update_fun(buf, curr, prev, e, p);
     ++total_updates;
   };
-  auto check_max_steps = [&assign_step, &p, &total_updates, &armijo_ok,
+  auto check_max_steps = [&__log_return, &assign_step, &p, &total_updates, &armijo_ok,
                           &wolfe_ok, &update_with_tick,
                           &msgs](auto&& scratch, auto&& curr, auto&& prev,
                                  auto&& best, auto&& opt) {
@@ -752,12 +775,12 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
       if (high.alpha() < opt.min_alpha) {
         debug::print("Exit on precheck numerical trouble", 1);
         debug::print("total_updates", total_updates);
-        return WolfeStatus{WolfeReturn::StepTooSmall, total_updates, 0, false};
+        return __log_return(WolfeStatus{WolfeReturn::StepTooSmall, total_updates, 0, false});
       }
       update_with_tick(scratch, high, p);
       auto check_steps = check_max_steps(scratch, curr, prev, high, opt);
       if (check_steps.stop_ != WolfeReturn::Continue) {
-        return check_steps;
+        return __log_return(check_steps);
       }
     }
     debug::print("First precheck: ", 1, "high.alpha(): ", high.alpha(),
@@ -772,7 +795,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
           best = high;
           auto check_steps = check_max_steps(scratch, curr, prev, best, opt);
           if (check_steps.stop_ != WolfeReturn::Continue) {
-            return check_steps;
+            return __log_return(check_steps);
           }
           high.alpha() *= opt.scale_up;
           if (high.alpha() > opt.max_alpha) {
@@ -787,7 +810,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
         update_with_tick(scratch, best, p);
         assign_step(curr, scratch, best);
         debug::print("total_updates", total_updates);
-        return WolfeStatus{WolfeReturn::Wolfe, total_updates, 0, true};
+        return __log_return(WolfeStatus{WolfeReturn::Wolfe, total_updates, 0, true});
       } else {
         if (best.obj() < high.obj()) {
           best = high;
@@ -841,8 +864,8 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
         assign_step(curr, scratch, high);
         debug::print("Exit on first while", 1);
         debug::print("total_updates", total_updates);
-        return WolfeStatus{WolfeReturn::Wolfe, total_updates, num_backtracks,
-                           true};
+        return __log_return(WolfeStatus{WolfeReturn::Wolfe, total_updates, num_backtracks,
+                           true});
       } else {
         if (best.obj() < high.obj()) {
           best = high;
@@ -862,7 +885,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
     found_right = true;
     auto check_steps = check_max_steps(scratch, curr, prev, best, opt);
     if (check_steps.stop_ != WolfeReturn::Continue) {
-      return check_steps;
+      return __log_return(check_steps);
     }
   }
   auto check_bounds = [&](auto&& curr_eval) {
@@ -900,7 +923,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
   };
   auto check_b = check_bounds(high);
   if (check_b.stop_ != WolfeReturn::Continue) {
-    return check_b;
+    return __log_return(check_b);
   }
   update_with_tick(scratch, high, p);
 
@@ -965,8 +988,8 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
         assign_step(curr, scratch, mid);
         debug::print("Exit on safe on zoom", 1);
         debug::print("total_updates", total_updates);
-        return WolfeStatus{WolfeReturn::Wolfe, total_updates, num_backtracks,
-                           true};
+        return __log_return(WolfeStatus{WolfeReturn::Wolfe, total_updates, num_backtracks,
+                           true});
       } else {
         if (best.obj() < mid.obj()) {
           best = mid;
@@ -990,11 +1013,11 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
     }
     auto check_bb = check_bounds(mid);
     if (check_bb.stop_ != WolfeReturn::Continue) {
-      return check_bb;
+      return __log_return(check_bb);
     }
     auto check_steps = check_max_steps(scratch, curr, prev, best, opt);
     if (check_steps.stop_ != WolfeReturn::Continue) {
-      return check_steps;
+      return __log_return(check_steps);
     }
   }
   debug::print("Failed zoom: ", 1, "Failed zoom:", 1,
@@ -1010,12 +1033,12 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
     assign_step(curr, scratch, best);
     debug::print("Exit on only satisfying armijo", 1);
     debug::print("total_updates", total_updates);
-    return WolfeStatus{WolfeReturn::Armijo, total_updates, num_backtracks,
-                       true};
+    return __log_return(WolfeStatus{WolfeReturn::Armijo, total_updates, num_backtracks,
+                       true});
   } else {
     debug::print("Exit on failure", 1);
     debug::print("total_updates", total_updates);
-    return WolfeStatus{WolfeReturn::Fail, total_updates, num_backtracks, false};
+    return __log_return(WolfeStatus{WolfeReturn::Fail, total_updates, num_backtracks, false});
   }
 }
 }  // namespace internal

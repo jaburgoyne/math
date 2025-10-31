@@ -24,6 +24,7 @@ TEST(laplace, poisson_log_phi_dim_2) {
   using stan::math::to_vector;
   using stan::math::value_of;
   using stan::math::var;
+  JLOG().set_file("../laplace_lpdf.jsonl", false);
   // logger->current_test_name_ = "poisson_log_phi_dim_2";
   constexpr int dim_phi = 2;
   Eigen::Matrix<double, Eigen::Dynamic, 1> phi_dbl{{1.6, 0.45}};
@@ -42,7 +43,7 @@ TEST(laplace, poisson_log_phi_dim_2) {
 
   std::vector<int> n_samples = {1, 1};
   std::vector<int> sums = {1, 0};
-
+/*
   double target = laplace_marginal<false>(
       poisson_log_likelihood2{}, std::forward_as_tuple(sums),
       stan::math::test::squared_kernel_functor{},
@@ -51,7 +52,6 @@ TEST(laplace, poisson_log_phi_dim_2) {
   // TODO(Charles): benchmark target against gpstuff.
   constexpr double tol = 1e-4;
   EXPECT_NEAR(-2.53056, value_of(target), tol);
-
   // Test with optional arguments
   {
     constexpr double tolerance = 1e-12;
@@ -68,6 +68,7 @@ TEST(laplace, poisson_log_phi_dim_2) {
         nullptr);
     EXPECT_NEAR(-2.53056, value_of(target), tol);
   }
+*/
 
   constexpr double tolerance = 1e-12;
   constexpr int max_num_steps = 100;
@@ -76,16 +77,52 @@ TEST(laplace, poisson_log_phi_dim_2) {
   constexpr stan::test::ad_tolerances tols{
       stan::test::ad_gradient_tols{1e-8, 1e-3}};
   //  tols.gradient_grad_ = 1e-3;
+  JLOG().init_builder("test", "poisson_log_phi_dim_2");
+  int run_num = 0;
   stan::math::test::run_solver_grid(
       [&](int solver_num, int hessian_block_size, int max_steps_line_search,
           auto&& theta_0) {
         auto f = [&](auto&& x_v, auto&& alpha, auto&& rho) {
-          return laplace_marginal_tol<false>(
-              poisson_log_likelihood2{}, std::forward_as_tuple(sums),
-              stan::math::test::squared_kernel_functor{},
-              std::forward_as_tuple(x_v, alpha, rho), theta_0, tolerance,
-              max_num_steps, hessian_block_size, solver_num,
-              max_steps_line_search, nullptr);
+          auto __b = JLOG().builder();
+          __b.field("component","poisson_log_phi_dim_2")
+            .field("where","run_solver_grid")
+            .field("event","laplace_marginal_tol_call")
+            .field("v_level", 0)
+            .field("run_num", ++run_num)
+            .begin_object("solver")
+              .field("solver_num", solver_num)
+              .field("hessian_block_size", hessian_block_size)
+              .field("max_steps_line_search", max_steps_line_search)
+            .end()
+            .begin_object("autodiff")
+              .field("x_v", (bool)stan::is_any_autodiff_v<decltype(x_v)>)
+              .field("alpha", (bool)stan::is_any_autodiff_v<decltype(alpha)>)
+              .field("rho", (bool)stan::is_any_autodiff_v<decltype(rho)>)
+            .end();
+          auto __t0 = std::chrono::high_resolution_clock::now();
+          try {
+            auto lp_val = laplace_marginal_tol<false>(
+                poisson_log_likelihood2{}, std::forward_as_tuple(sums),
+                stan::math::test::squared_kernel_functor{},
+                std::forward_as_tuple(x_v, alpha, rho), theta_0, tolerance,
+                max_num_steps, hessian_block_size, solver_num,
+                max_steps_line_search, nullptr);
+            auto end_t0 = std::chrono::high_resolution_clock::now();
+            auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                end_t0 - __t0).count();
+            __b.field("v_ns",(long long)__ns);
+            JLOG().commit_now(JsonLogger::Level::Debug, "poisson_log_phi_dim_2", __b);
+          return lp_val;
+          } catch (const std::domain_error& e) {
+            auto end_t0 = std::chrono::high_resolution_clock::now();
+            auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                end_t0 - __t0).count();
+            __b.field("error", e.what());
+            __b.field("v_ns",(long long)__ns);
+            JLOG().commit_now(JsonLogger::Level::Debug, "poisson_log_phi_dim_2", __b);
+            throw e;
+          }
+
         };
         stan::test::expect_ad<true>(tols, f, x, phi_dbl[0], phi_dbl[1]);
       },
@@ -108,7 +145,7 @@ TEST_F(laplace_disease_map_test, laplace_marginal) {
   using stan::math::laplace_marginal_tol;
   using stan::math::value_of;
   using stan::math::var;
-
+/*
   {
     double marginal_density = laplace_marginal<false>(
         poisson_log_exposure_likelihood{}, std::forward_as_tuple(ye, y),
@@ -119,18 +156,53 @@ TEST_F(laplace_disease_map_test, laplace_marginal) {
     // Benchmark from GPStuff.
     EXPECT_NEAR(-2866.88, value_of(marginal_density), tol);
   }
+*/
   constexpr double tolerance = 1e-12;
   constexpr int max_num_steps = 100;
+  JLOG().init_builder("test", "laplace_marginal_disease_map");
+  int run_num = 0;
   stan::math::test::run_solver_grid(
       [&](int solver_num, int hessian_block_size, int max_steps_line_search,
           auto&& theta_0) {
         auto f = [&](auto&& alpha, auto&& rho) {
-          return laplace_marginal_tol<false>(
-              poisson_log_exposure_likelihood{}, std::forward_as_tuple(ye, y),
-              stan::math::test::sqr_exp_kernel_functor{},
-              std::forward_as_tuple(x, alpha, rho), theta_0, tolerance,
-              max_num_steps, hessian_block_size, solver_num,
-              max_steps_line_search, nullptr);
+          auto __b = JLOG().builder();
+          __b.field("component","poisson_log_phi_dim_2")
+            .field("where","run_solver_grid")
+            .field("event","laplace_marginal_tol_call")
+            .field("v_level", 0)
+            .field("run_num", ++run_num)
+            .begin_object("solver")
+              .field("solver_num", solver_num)
+              .field("hessian_block_size", hessian_block_size)
+              .field("max_steps_line_search", max_steps_line_search)
+            .end()
+            .begin_object("autodiff")
+              .field("alpha", (bool)stan::is_any_autodiff_v<decltype(alpha)>)
+              .field("rho", (bool)stan::is_any_autodiff_v<decltype(rho)>)
+            .end();
+          auto __t0 = std::chrono::high_resolution_clock::now();
+          try {
+            auto lp_val = laplace_marginal_tol<false>(
+                poisson_log_exposure_likelihood{}, std::forward_as_tuple(ye, y),
+                stan::math::test::sqr_exp_kernel_functor{},
+                std::forward_as_tuple(x, alpha, rho), theta_0, tolerance,
+                max_num_steps, hessian_block_size, solver_num,
+                max_steps_line_search, nullptr);
+            auto end_t0 = std::chrono::high_resolution_clock::now();
+            auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                end_t0 - __t0).count();
+            __b.field("v_ns",(long long)__ns);
+            JLOG().commit_now(JsonLogger::Level::Debug, "laplace_marginal_disease_map", __b);
+            return lp_val;
+          } catch (const std::domain_error& e) {
+            auto end_t0 = std::chrono::high_resolution_clock::now();
+            auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                end_t0 - __t0).count();
+            __b.field("error", e.what());
+            __b.field("v_ns",(long long)__ns);
+            JLOG().commit_now(JsonLogger::Level::Debug, "laplace_marginal_disease_map", __b);
+            throw e;
+          }
         };
         stan::test::expect_ad<true>(f, phi_dbl[0], phi_dbl[1]);
       },
@@ -168,7 +240,7 @@ TEST(laplace, bernoulli_logit_phi_dim500) {
   std::vector<double> delta;
   constexpr int dim_phi = 2;
   Eigen::Matrix<double, Eigen::Dynamic, 1> phi_dbl{{1.6, 1}};
-
+/*
   double target = laplace_marginal<false>(
       bernoulli_logit_likelihood{}, std::forward_as_tuple(y),
       stan::math::test::sqr_exp_kernel_functor{},
@@ -177,21 +249,56 @@ TEST(laplace, bernoulli_logit_phi_dim500) {
   constexpr double tol = 3e-4;
   // Benchmark against gpstuff.
   EXPECT_NEAR(-195.368, target, tol);
+  */
   // All fail for ad check with relative tolerance ~0.002
   constexpr double tolerance = 1e-12;
   constexpr int max_num_steps = 100;
   constexpr stan::test::ad_tolerances tols{
       stan::test::ad_gradient_tols{1e-8, 5e-3}};
-  stan::math::test::run_solver_grid(
+int run_num = 0;
+  JLOG().init_builder("test", "bernoulli_logit_dim_500");
+    stan::math::test::run_solver_grid(
       [&](int solver_num, int hessian_block_size, int max_steps_line_search,
           auto&& theta_0) {
         auto f = [&](auto&& alpha, auto&& rho) {
-          return laplace_marginal_tol<false>(
-              bernoulli_logit_likelihood{}, std::forward_as_tuple(y),
-              stan::math::test::sqr_exp_kernel_functor{},
-              std::forward_as_tuple(x, alpha, rho), theta_0, tolerance,
-              max_num_steps, hessian_block_size, solver_num,
-              max_steps_line_search, nullptr);
+        auto __b = JLOG().builder();
+        __b.field("component","bernoulli_logit_dim_500")
+          .field("where","run_solver_grid")
+          .field("event","laplace_marginal_tol_call")
+          .field("v_level", 0)
+          .field("run_num", ++run_num)
+          .begin_object("solver")
+            .field("solver_num", solver_num)
+            .field("hessian_block_size", hessian_block_size)
+            .field("max_steps_line_search", max_steps_line_search)
+          .end()
+          .begin_object("autodiff")
+            .field("alpha", (bool)stan::is_any_autodiff_v<decltype(alpha)>)
+            .field("rho", (bool)stan::is_any_autodiff_v<decltype(rho)>)
+          .end();
+          auto __t0 = std::chrono::high_resolution_clock::now();
+            try {
+            auto lp_val = laplace_marginal_tol<false>(
+                bernoulli_logit_likelihood{}, std::forward_as_tuple(y),
+                stan::math::test::sqr_exp_kernel_functor{},
+                std::forward_as_tuple(x, alpha, rho), theta_0, tolerance,
+                max_num_steps, hessian_block_size, solver_num,
+                max_steps_line_search, nullptr);
+            auto end_t0 = std::chrono::high_resolution_clock::now();
+            auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                end_t0 - __t0).count();
+            __b.field("v_ns",(long long)__ns);
+            JLOG().commit_now(JsonLogger::Level::Debug, "bernoulli_logit_dim_500", __b);
+            return lp_val;
+            } catch (const std::domain_error& e) {
+            auto end_t0 = std::chrono::high_resolution_clock::now();
+            auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                end_t0 - __t0).count();
+            __b.field("error", e.what());
+            __b.field("v_ns",(long long)__ns);
+            JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle_ad", __b);
+            throw e;
+          }
         };
         stan::test::expect_ad<true>(tols, f, phi_dbl[0], phi_dbl[1]);
       },

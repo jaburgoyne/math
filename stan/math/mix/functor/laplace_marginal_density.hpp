@@ -4,6 +4,7 @@
 #include <stan/math/prim/fun/Eigen.hpp>
 #include <stan/math/mix/functor/laplace_likelihood.hpp>
 #include <stan/math/mix/functor/wolfe_line_search.hpp>
+#include <stan/math/mix/functor/json_logger.hpp>
 #include <stan/math/rev/meta.hpp>
 #include <stan/math/rev/core.hpp>
 #include <stan/math/rev/fun.hpp>
@@ -458,7 +459,7 @@ inline double barzilai_borwein_step_size(const Eigen::VectorXd& s,
  * \laplace_common_template_args
  * @param[in] ll_fun A log likelihood functor
  * @param[in] ll_args Tuple containing parameters for `LLFun`
- * @param[in] covariance The covariance matrix for the latent Gaussian
+ * @param[in] covariance The prior covariance matrix for the latent Gaussian
  * \laplace_common_args
  * @param[in] options A set of options for tuning the solver
  * \msg_arg
@@ -501,7 +502,7 @@ inline auto laplace_marginal_density_est(
           << ") is not divisible by the hessian block size ("
           << options.hessian_block_size
           << ")"
-             ". Try a hessian block size such as [1, ";
+             ". Use a hessian block size such as [1, ";
       for (int i = 2; i < 12; ++i) {
         if (theta_size % i == 0) {
           msg << i << ", ";
@@ -563,18 +564,42 @@ inline auto laplace_marginal_density_est(
   auto grad_fun = [&covariance](auto&& step) {
     return -covariance * step.a() + covariance * step.theta_grad();
   };
-  auto update_step = [&covariance, &obj_fun, &theta_grad_f, &grad_fun](
+  auto update_step = [&covariance, &obj_fun, &theta_grad_f, &grad_fun, &options](
                          auto& step_info, auto&& /* curr */, auto&& prev,
                          auto& eval_in, auto&& p) {
+    auto __t0 = std::chrono::high_resolution_clock::now();
     step_info.a() = prev.a() + eval_in.alpha() * p;
     step_info.theta().noalias() = covariance * step_info.a();
+    auto __t1 = std::chrono::high_resolution_clock::now();
     step_info.theta_grad() = theta_grad_f(step_info.theta());
+    auto end_t1 = std::chrono::high_resolution_clock::now();
     eval_in.obj() = obj_fun(step_info.a(), step_info.theta());
     eval_in.dir() = grad_fun(step_info).dot(p);
+    auto end_t0 = std::chrono::high_resolution_clock::now();
+    auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        end_t0 - __t0).count();
+    auto __ns1 = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        end_t1 - __t1).count();
+    auto __b = JLOG().builder();
+    __b.field("component","wolfe_line_search")
+      .field("where","update_step")
+      .field("event","wolfe_update")
+      .field("v_level", 2)
+      .field("v_ns",(long long)__ns)
+      .field("v_solver", options.solver);
+      JLOG().commit_now(JsonLogger::Level::Debug, "laplace_iter", __b);
+    auto __v = JLOG().builder();
+    __v.field("component","wolfe_line_search")
+      .field("where","update_step")
+      .field("event","theta_grad")
+      .field("v_level", 2)
+      .field("v_ns",(long long)__ns1)
+      .field("v_solver", options.solver);
+      JLOG().commit_now(JsonLogger::Level::Debug, "laplace_iter", __v);
   };
   Eigen::VectorXd prev_g(theta_size);
   auto update_line_search
-      = [&grad_fun, &covariance, &prev_g, &update_step, &theta_grad_f, &options,
+      = [&grad_fun, &obj_fun, &covariance, &prev_g, &update_step, &theta_grad_f, &options,
          &msgs](auto&& wolfe_status, auto&& wolfe_info, auto&& curr,
                 auto&& prev) {
           wolfe_info.p_ = curr.a() - prev.a();
@@ -586,13 +611,59 @@ inline auto laplace_marginal_density_est(
             wolfe_info.init_dir_ = -wolfe_info.init_dir_;
           }
           curr.theta().noalias() = covariance * curr.a();
+          auto __t0 = std::chrono::high_resolution_clock::now();
           curr.theta_grad() = theta_grad_f(curr.theta());
+          auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+              std::chrono::high_resolution_clock::now() - __t0).count();
+          auto __b = JLOG().builder();
+          __b.field("component","laplace_marginal_density_est")
+            .field("where","update_line_search")
+            .field("event","theta_grad")
+            .field("v_level", 1)
+            .field("v_ns",(long long)__ns)
+            .field("v_solver", options.solver);
+          JLOG().commit_now(JsonLogger::Level::Debug, "laplace_iter", __b);
           curr.alpha() = barzilai_borwein_step_size(
               wolfe_info.p_, grad_fun(curr), prev_g, prev.alpha(),
               wolfe_status.num_backtracks_, options.line_search.min_alpha,
               options.line_search.max_alpha);
-          wolfe_status = internal::wolfe_line_search(wolfe_info, update_step,
-                                                     options.line_search, msgs);
+          auto __ls_t0 = std::chrono::high_resolution_clock::now();
+          // If max_iterations is 0, do a full newton step
+        if (options.line_search.max_iterations == 0) {
+            curr.obj() = obj_fun(curr.a(), curr.theta());
+            curr.dir() = grad_fun(curr).dot(wolfe_info.p_);
+            curr.alpha() = 1.0;
+            if (internal::check_armijo(curr.eval_, prev.eval_, options.line_search)) {
+              wolfe_status.success_ = true;
+              wolfe_status.num_backtracks_ = 0;
+              if (internal::check_wolfe(curr.eval_, prev.eval_,
+                                         options.line_search)) {
+                wolfe_status.stop_ = WolfeReturn::Wolfe;
+              } else {
+                wolfe_status.stop_ = WolfeReturn::Armijo;
+              }
+            } else {
+              wolfe_status.stop_ = WolfeReturn::Fail;
+              wolfe_status.success_ = false;
+              wolfe_status.num_backtracks_ = 1;
+            }
+          } else {
+            wolfe_status = internal::wolfe_line_search(wolfe_info, update_step,
+                                                      options.line_search, msgs);
+          }
+          auto __ls_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+              std::chrono::high_resolution_clock::now() - __ls_t0).count();
+          auto __c = JLOG().builder();
+          __c.field("component","laplace_marginal_density_est")
+            .field("where","update_line_search")
+            .field("event","wolfe_line_search")
+            .field("v_level", 1)
+            .field("v_ns",(long long)__ls_ns)
+            .field("v_alpha", curr.alpha())
+            .field("v_obj_prev", prev.obj())
+            .field("v_obj_curr", curr.obj())
+            .field("v_solver", options.solver);
+          JLOG().commit_now(JsonLogger::Level::Debug, "laplace_iter", __c);
           debug::print("", 1, "Objective old: ", prev.obj(),
                        "Objective new: ", curr.obj(),
                        "Step size:      ", curr.alpha());
@@ -616,16 +687,16 @@ inline auto laplace_marginal_density_est(
   wolfe_status.num_backtracks_ = 99;
   if (options.solver == 1) {
     if (options.hessian_block_size == 1) {
-      //   std::cout << "Solver: 1Diag" << std::endl;
       Eigen::VectorXd W_r(theta_size);
       for (Eigen::Index i = 0; i <= options.max_num_steps; i++) {
+        auto __iter_t0 = std::chrono::high_resolution_clock::now();
         auto W = laplace_likelihood::diagonal_hessian(ll_fun, prev.theta(),
                                                       ll_args, msgs);
         for (Eigen::Index j = 0; j < W.size(); j++) {
           if (W.coeff(j) < 0) {
             throw std::domain_error(
-                "laplace_marginal_density: Hessian matrix is not positive "
-                "definite");
+                "laplace_marginal_density Solver 1: "
+                " The diagonal of the negative Hessian of the log likelihood must be positive everywhere.");
           } else {
             W_r.coeffRef(j) = std::sqrt(W.coeff(j));
           }
@@ -645,6 +716,17 @@ inline auto laplace_marginal_density_est(
           finish_update
               = update_line_search(wolfe_status, wolfe_info, curr, prev);
         }
+        auto __iter_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::high_resolution_clock::now() - __iter_t0).count();
+        auto __b = JLOG().builder();
+        __b.field("component","laplace_marginal_density_est")
+          .field("where","laplace_marginal_density_est")
+          .field("event","iter")
+          .field("v_level", 1)
+          .field("v_iter",(long long)i)
+          .field("v_ns",(long long)__iter_ns)
+          .field("v_solver", options.solver);
+        JLOG().commit_now(JsonLogger::Level::Info, "laplace_iter", __b);
         if (finish_update) {
           if (!final_loop && wolfe_status.success_) {
             // Do one final loop with exact wolfe conditions
@@ -688,7 +770,7 @@ inline auto laplace_marginal_density_est(
       }
       W_r.makeCompressed();
       for (Eigen::Index i = 0; i <= options.max_num_steps; i++) {
-        debug::print("======Iter", i);
+        auto __iter_t0 = std::chrono::high_resolution_clock::now();
         auto W = laplace_likelihood::block_hessian(
             ll_fun, prev.theta(), options.hessian_block_size, ll_args, msgs);
         for (Eigen::Index j = 0; j < W.rows(); j++) {
@@ -716,6 +798,17 @@ inline auto laplace_marginal_density_est(
           finish_update
               = update_line_search(wolfe_status, wolfe_info, curr, prev);
         }
+        auto __iter_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::high_resolution_clock::now() - __iter_t0).count();
+        auto __b = JLOG().builder();
+        __b.field("component","laplace_marginal_density_est")
+          .field("where","laplace_marginal_density_est")
+          .field("event","iter")
+          .field("v_level", 1)
+          .field("v_iter",(long long)i)
+          .field("v_ns",(long long)__iter_ns)
+          .field("v_solver", options.solver);
+        JLOG().commit_now(JsonLogger::Level::Info, "laplace_iter", __b);
         if (finish_update) {
           if (!final_loop && wolfe_status.success_) {
             // Do one final loop with exact wolfe conditions
@@ -744,6 +837,7 @@ inline auto laplace_marginal_density_est(
     Eigen::MatrixXd K_root
         = covariance.template selfadjointView<Eigen::Lower>().llt().matrixL();
     for (Eigen::Index i = 0; i <= options.max_num_steps; i++) {
+      auto __iter_t0 = std::chrono::high_resolution_clock::now();
       debug::print("======Iter", i);
       auto W = laplace_likelihood::block_hessian(
           ll_fun, prev.theta(), options.hessian_block_size, ll_args, msgs);
@@ -765,6 +859,18 @@ inline auto laplace_marginal_density_est(
         finish_update
             = update_line_search(wolfe_status, wolfe_info, curr, prev);
       }
+      auto __iter_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::high_resolution_clock::now() - __iter_t0).count();
+      auto __b = JLOG().builder();
+      __b.field("component","laplace_marginal_density_est")
+        .field("where","laplace_marginal_density_est")
+        .field("event","iter")
+        .field("v_level", 1)
+        .field("v_iter",(long long)i)
+        .field("v_ns",(long long)__iter_ns)
+        .field("v_solver", options.solver);
+      JLOG().commit_now(JsonLogger::Level::Info, "laplace_iter", __b);
+
       if (finish_update) {
         if (!final_loop && wolfe_status.success_) {
           // Do one final loop with exact wolfe conditions
@@ -789,9 +895,9 @@ inline auto laplace_marginal_density_est(
     }
     throw_overstep(options.max_num_steps);
   } else if (options.solver == 3) {
-    //    std::cout << "Solver: 3" << std::endl;
     Eigen::PartialPivLU<Eigen::MatrixXd> LU(theta_size);
     for (Eigen::Index i = 0; i <= options.max_num_steps; i++) {
+      auto __iter_t0 = std::chrono::high_resolution_clock::now();
       debug::print("======Iter", i);
       auto W = laplace_likelihood::block_hessian(
           ll_fun, prev.theta(), options.hessian_block_size, ll_args, msgs);
@@ -804,6 +910,17 @@ inline auto laplace_marginal_density_est(
         finish_update
             = update_line_search(wolfe_status, wolfe_info, curr, prev);
       }
+      auto __iter_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::high_resolution_clock::now() - __iter_t0).count();
+      auto __b = JLOG().builder();
+      __b.field("component","laplace_marginal_density_est")
+        .field("where","laplace_marginal_density_est")
+        .field("event","iter")
+        .field("v_iter",(long long)i)
+        .field("v_level", 1)
+        .field("v_ns",(long long)__iter_ns)
+        .field("v_solver", options.solver);
+      JLOG().commit_now(JsonLogger::Level::Info, "laplace_iter", __b);
       if (finish_update) {
         if (!final_loop && wolfe_status.success_) {
           // Do one final loop with exact wolfe conditions
