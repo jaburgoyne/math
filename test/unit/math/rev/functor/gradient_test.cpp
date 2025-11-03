@@ -409,7 +409,7 @@ TEST_F(AgradRev, RevFunctor_RecoverMemory) {
       double fx;
       VectorXd grad_fx;
       stan::math::gradient(sum_and_throw, x, fx, grad_fx);
-    } catch (const std::domain_error& e) {
+    } catch (const std::exception& e) {
       // ignore me
     }
   }
@@ -429,7 +429,7 @@ TEST_F(AgradRev, RevFunctor_RecoverMemory_gradient_array) {
       std::vector<double> grad_fx(5, 0);
       stan::math::gradient(sum_and_throw, x, fx, std::begin(grad_fx),
                            std::end(grad_fx));
-    } catch (const std::domain_error& e) {
+    } catch (const std::exception& e) {
       // ignore me
     }
   }

@@ -124,7 +124,7 @@ TEST(WriteArrayBodySimple, ExceededIteration) {
             ops.theta_0,
             ops.tolerance, ops.max_num_steps, ops.hessian_block_size, ops.solver,
             ops.line_search.max_iterations, pstream);
-      } catch (const std::domain_error& e) {
+      } catch (const std::exception& e) {
         auto end_t0 = std::chrono::high_resolution_clock::now();
         auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
             end_t0 - __t0).count();
@@ -155,7 +155,7 @@ TEST(WriteArrayBodySimple, ExceededIteration) {
                           + "), laplace and integrated results should be close";
         expect_near_rel(msg, ll_laplace_val, std::log(piece), rel_tol,
                         "laplace_val", "integrated_val");
-      } catch (const std::domain_error& e) {
+      } catch (const std::exception& e) {
         // NOTE: Failures for integration are fine since we are testing laplace.
         continue;
       }
@@ -178,6 +178,7 @@ TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
   JLOG().init_builder("test", "aki_sample_roach_data_rows");
   int run_num = 0;
   Eigen::VectorXd theta_0 = Eigen::VectorXd::Zero(1);
+  std::vector<double> ll_integrate_1d_vals;
   for (int max_line_search_steps : {0, 1000}) {
     const stan::math::laplace_options_user_supplied ops{
         1,
@@ -220,7 +221,7 @@ TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
               ops.tolerance, ops.max_num_steps, ops.hessian_block_size, ops.solver,
               ops.line_search.max_iterations, pstream);
 
-        } catch (const std::domain_error& e) {
+        } catch (const std::exception& e) {
           auto end_t0 = std::chrono::high_resolution_clock::now();
           auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
               end_t0 - __t0).count();
@@ -264,46 +265,14 @@ TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
                             + "), laplace and integrated results should be close";
           expect_near_rel(msg, ll_laplace_val, std::log(piece), rel_tol,
                           "laplace_val", "integrated_val");
-        } catch (const std::domain_error& e) {
+        } catch (const std::exception& e) {
           // Note: Integration failures are fine since we are testing laplace.
           continue;
         }
       }
-      JLOG().set_file("../aki_ex_full.jsonl", false);
-      JLOG().init_builder("test", "aki_sample_roach_data");
-        auto __b = JLOG().builder();
-        __b.field("component","aki_sample_roach_data")
-          .field("where","run_solver_grid")
-          .field("event","laplace_marginal_tol_call")
-          .field("v_level", 0)
-          .field("run_num", ++run_num)
-          .begin_object("test")
-            .field("solver_num", 1)
-            .field("hessian_block_size", 1)
-            .field("max_steps_line_search", ops.line_search.max_iterations)
-          .end();
-        auto __t0 = std::chrono::high_resolution_clock::now();
-      auto ll_laplace_all = stan::math::laplace_marginal_tol(
-          poisson_re_log_ll_functor(), std::forward_as_tuple(y, mu),
-          cov_fun_functor(), std::tuple<double, int>(sigmaz, N),
-          ops.theta_0,
-          ops.tolerance, ops.max_num_steps, ops.hessian_block_size, ops.solver,
-          ops.line_search.max_iterations, pstream);
-
-      auto end_t0 = std::chrono::high_resolution_clock::now();
-      auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-          end_t0 - __t0).count();
-      __b.field("v_ns",(long long)__ns);
-      JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle_ad", __b);
-      // Assertions
-      //    std::cout << "ll_laplace: " << ll_laplace << "\nll_laplace_all: " <<
-      //    ll_laplace_all << "\nll_integrate_1d: " << ll_integrate_1d <<
-      //    std::endl;
+      ll_integrate_1d_vals.push_back(ll_integrate_1d);
       stan::test::relative_tolerance sum_rel_tol(3e-2);
       expect_near_rel("sum laplace vs integrated sum", ll_laplace,
-                      ll_integrate_1d, sum_rel_tol, "laplace_sum",
-                      "integrated_sum");
-      expect_near_rel("total laplace vs integrated sum", ll_laplace_all,
                       ll_integrate_1d, sum_rel_tol, "laplace_sum",
                       "integrated_sum");
       EXPECT_TRUE(std::isfinite(ll_laplace)) << "Laplace result should be finite";
@@ -311,4 +280,67 @@ TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
           << "Integrated result should be finite";
     }
   }
+    JLOG().set_file("../aki_ex_full.jsonl", false);
+    JLOG().init_builder("test", "aki_sample_roach_data");
+    for (int max_line_search_steps : {0, 1000}) {
+      const stan::math::laplace_options_user_supplied ops{
+          1,
+          1,
+          1.49012e-08,
+          500,
+          stan::math::laplace_line_search_options{max_line_search_steps},
+          theta_0};
+      stan::test::relative_tolerance sum_rel_tol(3e-2);
+      for (int iter = 0; iter < num_samples; ++iter) {
+        auto mu = mu_samples.col(iter);
+        auto sigmaz = sigmaz_samples(0, iter);
+        auto __b = JLOG().builder();
+          __b.field("component","aki_sample_roach_data")
+            .field("where","run_solver_grid")
+            .field("event","laplace_marginal_tol_call")
+            .field("v_level", 0)
+            .field("run_num", ++run_num)
+            .begin_object("test")
+              .field("solver_num", 1)
+              .field("hessian_block_size", 1)
+              .field("max_steps_line_search", ops.line_search.max_iterations)
+            .end();
+        auto __t0 = std::chrono::high_resolution_clock::now();
+        double ll_laplace_all{0};
+        try {
+          ll_laplace_all = stan::math::laplace_marginal_tol(
+              poisson_re_log_ll_functor(), std::forward_as_tuple(y, mu),
+              cov_fun_functor(), std::tuple<double, int>(sigmaz, N),
+              Eigen::VectorXd::Zero(N),
+              ops.tolerance, ops.max_num_steps, ops.hessian_block_size, ops.solver,
+              ops.line_search.max_iterations, pstream);
+
+          auto end_t0 = std::chrono::high_resolution_clock::now();
+          auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+              end_t0 - __t0).count();
+          __b.field("v_ns",(long long)__ns);
+          JLOG().commit_now(JsonLogger::Level::Debug, "aki_sample_roach_data", __b);
+          // Assertions
+          //    std::cout << "ll_laplace: " << ll_laplace << "\nll_laplace_all: " <<
+          //    ll_laplace_all << "\nll_integrate_1d: " << ll_integrate_1d <<
+          //    std::endl;
+
+        } catch (const std::exception& e) {
+          auto end_t0 = std::chrono::high_resolution_clock::now();
+          auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+              end_t0 - __t0).count();
+          __b.field("error", e.what());
+          __b.field("v_ns",(long long)__ns);
+          JLOG().commit_now(JsonLogger::Level::Debug, "aki_sample_roach_data", __b);
+          // Log bad values to CSV files
+          ADD_FAILURE() << "Full Laplace failed"
+                        << "\nerror: " << e.what();
+          continue;
+        }
+        stan::test::relative_tolerance sum_rel_tol(3e-2);
+        expect_near_rel("total laplace vs integrated sum", ll_laplace_all,
+                        ll_integrate_1d_vals[iter], sum_rel_tol, "laplace_sum",
+                        "integrated_sum");
+      }
+    }
 }

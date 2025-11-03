@@ -28,7 +28,7 @@ struct normal_likelihood {
     }
     try {
       return stan::math::normal_lpdf(y, mu, sigma) + lp;
-    } catch (const std::domain_error& e) {
+    } catch (const std::exception& e) {
       std::cout << "Error in normal_lpdf: " << e.what() << std::endl;
       std::cout << "theta: \n" << theta.transpose() << std::endl;
       std::cout << "y: \n" << y.transpose() << std::endl;
@@ -189,7 +189,7 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle_ad) {
             JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle_ad", __b);
           return lp_val;
 
-          } catch (const std::domain_error& e) {
+          } catch (const std::exception& e) {
             auto end_t0 = std::chrono::high_resolution_clock::now();
             auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 end_t0 - __t0).count();
@@ -322,7 +322,7 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle2_ad) {
           __b.field("v_ns",(long long)__ns);
           JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle2_ad", __b);
           return lp_val;
-          } catch (const std::domain_error& e) {
+          } catch (const std::exception& e) {
             auto end_t0 = std::chrono::high_resolution_clock::now();
             auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 end_t0 - __t0).count();

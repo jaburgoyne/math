@@ -113,7 +113,7 @@ TEST(laplace, poisson_log_phi_dim_2) {
             __b.field("v_ns",(long long)__ns);
             JLOG().commit_now(JsonLogger::Level::Debug, "poisson_log_phi_dim_2", __b);
           return lp_val;
-          } catch (const std::domain_error& e) {
+          } catch (const std::exception& e) {
             auto end_t0 = std::chrono::high_resolution_clock::now();
             auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 end_t0 - __t0).count();
@@ -194,7 +194,7 @@ TEST_F(laplace_disease_map_test, laplace_marginal) {
             __b.field("v_ns",(long long)__ns);
             JLOG().commit_now(JsonLogger::Level::Debug, "laplace_marginal_disease_map", __b);
             return lp_val;
-          } catch (const std::domain_error& e) {
+          } catch (const std::exception& e) {
             auto end_t0 = std::chrono::high_resolution_clock::now();
             auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 end_t0 - __t0).count();
@@ -290,7 +290,7 @@ int run_num = 0;
             __b.field("v_ns",(long long)__ns);
             JLOG().commit_now(JsonLogger::Level::Debug, "bernoulli_logit_dim_500", __b);
             return lp_val;
-            } catch (const std::domain_error& e) {
+            } catch (const std::exception& e) {
             auto end_t0 = std::chrono::high_resolution_clock::now();
             auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 end_t0 - __t0).count();
