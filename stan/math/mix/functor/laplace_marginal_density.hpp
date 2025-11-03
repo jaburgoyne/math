@@ -629,28 +629,22 @@ inline auto laplace_marginal_density_est(
               options.line_search.max_alpha);
           auto __ls_t0 = std::chrono::high_resolution_clock::now();
           // If max_iterations is 0, do a full newton step
+        wolfe_info.scratch_.alpha() = 1.0;
+        update_step(wolfe_info.scratch_, curr, prev, wolfe_info.scratch_.eval_, wolfe_info.p_);
         if (options.line_search.max_iterations == 0) {
-            curr.obj() = obj_fun(curr.a(), curr.theta());
-            curr.dir() = grad_fun(curr).dot(wolfe_info.p_);
             curr.alpha() = 1.0;
-            if (internal::check_armijo(curr.eval_, prev.eval_, options.line_search)) {
-              wolfe_status.success_ = true;
-              wolfe_status.num_backtracks_ = 0;
-              if (internal::check_wolfe(curr.eval_, prev.eval_,
-                                         options.line_search)) {
-                wolfe_status.stop_ = WolfeReturn::Wolfe;
-              } else {
-                wolfe_status.stop_ = WolfeReturn::Armijo;
-              }
-            } else {
-              wolfe_status.stop_ = WolfeReturn::Fail;
-              wolfe_status.success_ = false;
-              wolfe_status.num_backtracks_ = 1;
+            wolfe_status.success_ = true;
+            wolfe_status.stop_ = WolfeReturn::Wolfe;
+            while (!internal::check_armijo(wolfe_info.scratch_.eval_, prev.eval_, options.line_search) && wolfe_info.scratch_.alpha() > options.line_search.min_alpha) {
+                wolfe_info.scratch_.alpha() *= 0.5;
+                update_step(wolfe_info.scratch_, curr, prev, wolfe_info.scratch_.eval_, wolfe_info.p_);
             }
-          } else {
+            curr.update(wolfe_info.scratch_, wolfe_info.scratch_.eval_);
+            curr.alpha() = 1.0;
+        } else {
             wolfe_status = internal::wolfe_line_search(wolfe_info, update_step,
                                                       options.line_search, msgs);
-          }
+        }
           auto __ls_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
               std::chrono::high_resolution_clock::now() - __ls_t0).count();
           auto __c = JLOG().builder();

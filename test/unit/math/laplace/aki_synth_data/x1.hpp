@@ -3,6 +3,7 @@
 namespace stan {
 namespace test {
 namespace laplace {
+namespace synth_data {
 static const auto x2 = std::vector<double>{
     0.051008,  -0.74807,  -0.77293,   0.21837,   0.37268,   -0.62932,
     -0.43307,  -0.84152,  0.47526,    0.32083,   0.32061,   -0.89077,
@@ -182,6 +183,7 @@ static const auto y = std::vector<int>{
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+} // namespace synth_data
 }  // namespace laplace
 }  // namespace test
 }  // namespace stan

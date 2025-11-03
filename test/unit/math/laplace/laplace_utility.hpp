@@ -1,7 +1,9 @@
 #ifndef STAN_TEST_UNIT_MATH_MIX_LAPLACE_UTILITY_HPP
 #define STAN_TEST_UNIT_MATH_MIX_LAPLACE_UTILITY_HPP
 #include <stan/math/mix.hpp>
+#include <test/unit/math/laplace/aki_synth_data/x1.hpp>
 #include <test/unit/math/laplace/aki_disease_data/x1.hpp>
+
 #include <boost/algorithm/string.hpp>
 #include <iostream>
 #include <gtest/gtest.h>
@@ -262,10 +264,67 @@ inline void print_adjoint(Output&& output) {
 
 //////////////////////////////////////////////////////////////////////////
 
-class laplace_disease_map_test : public ::testing::Test {
+// If your original test lived in a fixture named laplace_motorcyle_gp_test,
+// we inherit from it to reuse x, y, n_obs, phi_dbl, theta0, etc.
+class LaplaceSolverGrid
+    : public ::testing::TestWithParam<std::tuple<int,int,int>> {};
+
+// Nice readable per-case names: Solver{n}_Block{b}_LS{steps}
+static inline std::string ParamName(
+    const ::testing::TestParamInfo<std::tuple<int,int,int>>& info) {
+  const auto& [solver, hblock, ls] = info.param;
+  std::ostringstream os;
+  os << "Solver" << solver << "_Block" << hblock << "_LS" << ls;
+  return os.str();
+}
+
+
+class bernoulli_logit_phi_dim500 : public LaplaceSolverGrid {
+  public:
+    // logger->current_test_name_ = "bernoulli_logit_phi_dim500";
+  static constexpr int dim_theta = 500;
+  static constexpr int n_observations = 500;
+  static const std::vector<double> x1;
+  static const std::vector<double> x2;
+  static const std::vector<int> y;
+  void SetUp() {
+    for (int i = 0; i < dim_theta; i++) {
+      Eigen::VectorXd coordinate(dim_x);
+      coordinate << x1[i], x2[i];
+      x[i] = coordinate;
+    }
+  }
+  static constexpr int dim_x = 2;
+  std::vector<Eigen::VectorXd> x = std::vector<Eigen::VectorXd>(500);
+  Eigen::VectorXd theta_0 = Eigen::VectorXd::Zero(dim_theta);
+  Eigen::VectorXd delta_L;
+  std::vector<double> delta;
+  static constexpr int dim_phi = 2;
+  Eigen::Matrix<double, Eigen::Dynamic, 1> phi_dbl{{1.6, 1}};
+/*
+  double target = laplace_marginal<false>(
+      bernoulli_logit_likelihood{}, std::forward_as_tuple(y),
+      stan::math::test::sqr_exp_kernel_functor{},
+      std::forward_as_tuple(x, phi_dbl(0), phi_dbl(1)), nullptr);
+
+  constexpr double tol = 3e-4;
+  // Benchmark against gpstuff.
+  EXPECT_NEAR(-195.368, target, tol);
+  */
+  // All fail for ad check with relative tolerance ~0.002
+  static constexpr double tolerance = 1e-12;
+  static constexpr int max_num_steps = 100;
+
+};
+const std::vector<double> bernoulli_logit_phi_dim500::x1 = stan::test::laplace::synth_data::x1;
+const std::vector<double> bernoulli_logit_phi_dim500::x2 = stan::test::laplace::synth_data::x2;
+const std::vector<int> bernoulli_logit_phi_dim500::y = stan::test::laplace::synth_data::y;
+
+
+class laplace_disease_map_test : public LaplaceSolverGrid {
+  public:
   // Based on (Vanhatalo, Pietilainen and Vethari, 2010). See
   // https://research.cs.aalto.fi/pml/software/gpstuff/demo_spatial1.shtml
- protected:
   void SetUp() override {
     dim_theta = 911;
     n_observations = 911;
@@ -326,7 +385,7 @@ class laplace_disease_map_test : public ::testing::Test {
 };
 
 class laplace_count_two_dim_diag_test : public ::testing::Test {
- protected:
+  public:
   void SetUp() override {
     using stan::math::algebra_solver;
     dim_theta = 2;

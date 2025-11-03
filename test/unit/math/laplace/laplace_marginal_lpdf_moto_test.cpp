@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 #include <iostream>
 #include <vector>
+#include <mutex>
 
 struct normal_likelihood {
   template <typename Theta, typename YVec>
@@ -75,7 +76,7 @@ struct covariance_motorcycle_functor {
   }
 };
 
-class laplace_motorcyle_gp_test : public ::testing::Test {
+class laplace_motorcyle_gp_test : public ::testing::TestWithParam<std::tuple<int,int,int>> {
  protected:
   void SetUp() override {
     using stan::math::gp_exp_quad_cov;
@@ -127,92 +128,134 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle_val) {
       max_steps_line_search, nullptr);
 }
 */
-TEST_F(laplace_motorcyle_gp_test, gp_motorcycle_ad) {
-  using stan::math::gp_exp_quad_cov;
-  using stan::math::value_of;
-  Eigen::MatrixXd K_plus_I
-      = gp_exp_quad_cov(x, value_of(sigma_f), value_of(length_scale_f))
-        + Eigen::MatrixXd::Identity(n_obs, n_obs);
-  Eigen::VectorXd mu_hat = K_plus_I.colPivHouseholderQr().solve(y);
-  // Remark: finds optimal point with or without informed initial guess.
-  for (int i = 0; i < n_obs - 1; i++) {
-    theta0(2 * i) = 0.0;
-    theta0(2 * i + 1) = -1.0;
-  }
-  // logger->current_test_name_ = "gp_motorcycle";
+
+// If your original test lived in a fixture named laplace_motorcyle_gp_test,
+// we inherit from it to reuse x, y, n_obs, phi_dbl, theta0, etc.
+class LaplaceMotorcycleParamTest
+    : public laplace_motorcyle_gp_test  { // solver, hblock, ls_steps
+ protected:
+  // Optionally put per-test setup here (we'll re-init theta0 inside TEST_P).
+  void SetUp() override {}
+};
+
+
+TEST_P(LaplaceMotorcycleParamTest, gp_motorcycle_ad) {
   using stan::math::laplace_marginal_tol;
 
-  // TODO(Steve): benchmark this result against GPStuff.
-  constexpr double tolerance = 1e-8;
-  constexpr int max_num_steps = 1000;
+  const auto [solver_num, hessian_block_size, max_steps_line_search] = GetParam();
+
+  // Prepare theta0 like the original test did (informed initial guess).
+  for (int i = 0; i < n_obs - 1; i++) {
+    theta0(2 * i)     = 0.0;
+    theta0(2 * i + 1) = -1.0;
+  }
+
+  if (theta0.size() % hessian_block_size != 0) {
+    GTEST_SKIP() << "Skipping: theta0.size() = " << theta0.size()
+                 << " not divisible by hessian_block_size = "
+                 << hessian_block_size;
+  }
+
+  // One-time log sink initialization (safe across test cases)
+  static std::once_flag log_once;
+  std::call_once(log_once, [] {
+    JLOG().set_file("../laplace_moto.jsonl", false);
+    JLOG().init_builder("test", "gp_motorcycle_ad");
+  });
+  JLOG().init_builder("test", "gp_motorcycle_ad_" + std::to_string(solver_num) + "_" +
+                                  std::to_string(hessian_block_size) + "_" +
+                                  std::to_string(max_steps_line_search));
+  // Shared constants from your original test
+  constexpr double tolerance     = 1e-8;
+  constexpr int    max_num_steps = 1000;
+  constexpr stan::test::ad_tolerances tols{
+      stan::test::ad_gradient_tols{1e-8, 1e-1}};
+
+  // Rebuild phi pieces like before
   auto phi_0 = phi_dbl(0);
   auto phi_1 = phi_dbl(1);
   Eigen::VectorXd phi_rest = phi_dbl.tail(2);
-  Eigen::VectorXd phi_01{{phi_0, phi_1}};
-  constexpr stan::test::ad_tolerances tols{
-      stan::test::ad_gradient_tols{1e-8, 1e-1}};
-  int run_num = 0;
-  JLOG().set_file("../laplace_moto.jsonl", false);
-  JLOG().init_builder("test", "gp_motorcycle_ad");
-  stan::math::test::run_solver_grid(
-      [&](int solver_num, int hessian_block_size, int max_steps_line_search,
-          auto&& theta_0) {
-        auto f = [&](auto&& phi_01_v, auto&& phi_rest_v) {
-          auto __b = JLOG().builder();
-          __b.field("component","gp_motorcycle_ad")
-            .field("where","run_solver_grid")
-            .field("event","laplace_marginal_tol_call")
-            .field("v_level", 0)
-            .field("run_num", ++run_num)
-            .begin_object("test")
-              .field("solver_num", solver_num)
-              .field("hessian_block_size", hessian_block_size)
-              .field("max_steps_line_search", max_steps_line_search)
-            .end()
-            .begin_object("autodiff")
-              .field("phi_01_v", (bool)stan::is_any_autodiff_v<decltype(phi_01_v)>)
-              .field("phi_rest_v", (bool)stan::is_any_autodiff_v<decltype(phi_rest_v)>)
-            .end();
-          auto __t0 = std::chrono::high_resolution_clock::now();
-          try {
-            auto lp_val = laplace_marginal_tol<false>(
-                normal_likelihood{}, std::forward_as_tuple(y, n_obs),
-                covariance_motorcycle_functor{},
-                std::forward_as_tuple(x, phi_01_v(0), phi_01_v(1), phi_rest_v(0),
-                                      phi_rest_v(1), n_obs),
-                theta_0, tolerance, max_num_steps, hessian_block_size, solver_num,
-                max_steps_line_search, nullptr);
-            auto end_t0 = std::chrono::high_resolution_clock::now();
-            auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                end_t0 - __t0).count();
-            __b.field("v_ns",(long long)__ns);
-            JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle_ad", __b);
-          return lp_val;
+  Eigen::VectorXd phi_01(2);
+  phi_01 << phi_0, phi_1;
 
-          } catch (const std::exception& e) {
-            auto end_t0 = std::chrono::high_resolution_clock::now();
-            auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                end_t0 - __t0).count();
-            __b.field("error", e.what());
-            __b.field("v_ns",(long long)__ns);
-            JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle_ad", __b);
-            throw e;
-          }
-        };
-        try {
-          stan::test::expect_ad<true>(tols, f, phi_01, phi_rest);
-        } catch (const std::domain_error e) {
-          ADD_FAILURE() << "Exception: " << e.what()
-                        << "\n\tsolver_num: " << solver_num
-                        << "\n\tmax_steps_line_search: "
-                        << max_steps_line_search
-                        << "\n\thessian_block_size: " << hessian_block_size
-                        << std::endl;
-          stan::math::recover_memory();
-        }
-      },
-      theta0);
+  // Keep the run counter monotonic across cases for your logs
+  static std::atomic<int> run_counter{0};
+
+  // The function under test (same shape as in your loop body)
+  auto f = [&](auto&& phi_01_v, auto&& phi_rest_v) {
+    auto __b = JLOG().builder();
+    __b.field("component", "gp_motorcycle_ad")
+      .field("where", "param_test")
+      .field("event", "laplace_marginal_tol_call")
+      .field("v_level", 0)
+      .field("run_num", ++run_counter)
+      .begin_object("test")
+        .field("solver_num", solver_num)
+        .field("hessian_block_size", hessian_block_size)
+        .field("max_steps_line_search", max_steps_line_search)
+      .end()
+      .begin_object("autodiff")
+        .field("phi_01_v",
+               (bool)stan::is_any_autodiff_v<decltype(phi_01_v)>)
+        .field("phi_rest_v",
+               (bool)stan::is_any_autodiff_v<decltype(phi_rest_v)>)
+      .end();
+
+    auto __t0 = std::chrono::high_resolution_clock::now();
+    try {
+      auto lp_val = laplace_marginal_tol<false>(
+          normal_likelihood{}, std::forward_as_tuple(y, n_obs),
+          covariance_motorcycle_functor{},
+          std::forward_as_tuple(
+              x, phi_01_v(0), phi_01_v(1),
+              phi_rest_v(0), phi_rest_v(1), n_obs),
+          theta0, tolerance, max_num_steps,
+          hessian_block_size, solver_num,
+          max_steps_line_search, nullptr);
+      auto end_t0 = std::chrono::high_resolution_clock::now();
+      auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                      end_t0 - __t0)
+                      .count();
+      __b.field("v_ns", (long long)__ns);
+      if (::testing::Test::HasNonfatalFailure()) {
+        __b.field("status","FAILURE");
+      } else {
+        __b.field("status","SUCCESS");
+      }
+      JLOG().commit_now(JsonLogger::Level::Debug,
+                        "gp_motorcycle_ad", __b);
+      return lp_val;
+
+    } catch (const std::exception& e) {
+      auto end_t0 = std::chrono::high_resolution_clock::now();
+      auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                      end_t0 - __t0)
+                      .count();
+      __b.field("error", e.what());
+      __b.field("v_ns", (long long)__ns);
+      if (::testing::Test::HasNonfatalFailure()) {
+        __b.field("status","FAILURE");
+      } else {
+        __b.field("status","SUCCESS");
+      }
+      JLOG().commit_now(JsonLogger::Level::Debug,
+                        "gp_motorcycle_ad", __b);
+      throw e;
+    }
+  };
+
+  try {
+    stan::test::expect_ad<true>(tols, f, phi_01, phi_rest);
+  } catch (const std::domain_error& e) {
+    ADD_FAILURE() << "Exception: " << e.what()
+                  << "\n\tsolver_num: " << solver_num
+                  << "\n\tmax_steps_line_search: " << max_steps_line_search
+                  << "\n\thessian_block_size: " << hessian_block_size
+                  << std::endl;
+    stan::math::recover_memory();
+  }
 }
+
 
 struct normal_likelihood2 {
   template <typename Theta, typename SigmaGlobal>
@@ -263,7 +306,11 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle2_val) {
       max_steps_line_search, nullptr);
 }
 */
-TEST_F(laplace_motorcyle_gp_test, gp_motorcycle2_ad) {
+TEST_P(LaplaceMotorcycleParamTest, gp_motorcycle2_ad) {
+  using stan::math::laplace_marginal_tol;
+
+  const auto [solver_num, hessian_block_size, max_steps_line_search] = GetParam();
+
   using stan::math::gp_exp_quad_cov;
   using stan::math::laplace_marginal_tol;
   using stan::math::value_of;
@@ -276,6 +323,10 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle2_ad) {
     theta0(2 * i) = mu_hat(i);
     theta0(2 * i + 1) = -1.0;
   }
+  JLOG().init_builder("test", "gp_motorcycle_ad2_" + std::to_string(solver_num) + "_" +
+                                std::to_string(hessian_block_size) + "_" +
+                                std::to_string(max_steps_line_search));
+
   // TODO(Charles): benchmark this result against GPStuff.
   constexpr double tolerance = 1e-8;
   constexpr int max_num_steps = 1000;
@@ -284,10 +335,6 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle2_ad) {
   constexpr stan::test::ad_tolerances tols{
       stan::test::ad_gradient_tols{1e-8, 1e-1}};
   int run_num = 0;
-  JLOG().init_builder("test", "gp_motorcycle2_ad");
-  stan::math::test::run_solver_grid(
-      [&](int solver_num, int hessian_block_size, int max_steps_line_search,
-          auto&& theta_0) {
         auto f = [&](auto&& sigma_global_v, auto&& length_scale_v,
                      auto&& sigma_v) {
           auto __b = JLOG().builder();
@@ -314,12 +361,17 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle2_ad) {
               covariance_motorcycle_functor{},
               std::forward_as_tuple(x, length_scale_v(0), length_scale_v(1),
                                     sigma_v(0), sigma_v(1), n_obs),
-              theta_0, tolerance, max_num_steps, hessian_block_size, solver_num,
+              theta0, tolerance, max_num_steps, hessian_block_size, solver_num,
               max_steps_line_search, nullptr);
           auto end_t0 = std::chrono::high_resolution_clock::now();
           auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
               end_t0 - __t0).count();
           __b.field("v_ns",(long long)__ns);
+          if (::testing::Test::HasNonfatalFailure()) {
+            __b.field("status","FAILURE");
+          } else {
+            __b.field("status","SUCCESS");
+          }
           JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle2_ad", __b);
           return lp_val;
           } catch (const std::exception& e) {
@@ -328,12 +380,26 @@ TEST_F(laplace_motorcyle_gp_test, gp_motorcycle2_ad) {
                 end_t0 - __t0).count();
             __b.field("error", e.what());
             __b.field("v_ns",(long long)__ns);
-            JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle_ad", __b);
+            if (::testing::Test::HasNonfatalFailure()) {
+              __b.field("status","FAILURE");
+            } else {
+              __b.field("status","SUCCESS");
+            }
+            JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle2_ad", __b);
             throw e;
           }
         };
         stan::test::expect_ad<true>(tols, f, sigma_global, length_scale_vec,
                                     sigma_vec);
-      },
-      theta0);
 }
+
+// Instantiate over the full grid: solver ∈ {1,2,3}, hblock ∈ {1,2,3}, ls_steps ∈ {0,1000}.
+INSTANTIATE_TEST_SUITE_P(
+    LaplaceMotorcycleParamTestSuite,
+    LaplaceMotorcycleParamTest,
+    ::testing::Combine(
+        ::testing::Values(1, 2, 3),      // solver_num
+        ::testing::Values(1, 2, 3),      // hessian_block_size
+        ::testing::Values(0, 50)       // max_steps_line_search
+    ),
+    ParamName);
