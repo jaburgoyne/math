@@ -384,42 +384,28 @@ class laplace_disease_map_test : public LaplaceSolverGrid {
   // stan::math::poisson_log_likelihood f;
 };
 
-class laplace_count_two_dim_diag_test : public ::testing::Test {
+class laplace_count_two_dim_diag_test : public LaplaceSolverGrid {
   public:
-  void SetUp() override {
-    using stan::math::algebra_solver;
-    dim_theta = 2;
-    y.resize(2);
-    y = {1, 0};
-    y_index.resize(2);
-    y_index = {1, 2};
 
-    theta_root = algebra_solver(stan::math::test::stationary_point(), theta_0,
-                                phi, d0, di0);
-    K_laplace = stan::math::test::laplace_covariance(theta_root, phi);
-
-    rng.seed(1954);
-    theta_benchmark = stan::math::multi_normal_rng(theta_root, K_laplace, rng);
-
-    tol = 1e-3;
-    n_sim = 5e5;
-  }
-
-  int dim_theta;
+  int dim_theta{2};
   Eigen::VectorXd theta_0{{1, 1}};
   Eigen::VectorXd theta_root;
   Eigen::VectorXd phi{{3, 2}};
-  std::vector<int> y;
-  std::vector<int> y_index;
+  std::vector<int> y{1, 0};
+  std::vector<int> y_index{1, 2};
   Eigen::VectorXd ye{{1, 1}};
   std::vector<double> d0;
   std::vector<int> di0;
   Eigen::MatrixXd K_laplace;
   Eigen::MatrixXd theta_benchmark;
   boost::random::mt19937 rng;
-  double tol;
-  int n_sim;
+  double tol{1e-3};
+  double eta{2.0};
+  int n_sim{static_cast<int>(5e5)};
 };
+
+
+
 #ifdef DEBUG_LAPLACE
 static bool write_init_json = true;
 static int err_iter = 0;

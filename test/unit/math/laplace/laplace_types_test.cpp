@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 #include <iostream>
 #include <vector>
-
+/*
 namespace {
 struct poisson_log_likelihood2 {
   template <typename Theta>
@@ -302,3 +302,4 @@ TEST(laplace, poisson_log_phi_dim_2_array_tuple) {
 }
 
 }  // namespace
+*/

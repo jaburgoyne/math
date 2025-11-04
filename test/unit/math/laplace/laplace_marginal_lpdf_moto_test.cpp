@@ -109,26 +109,6 @@ class laplace_motorcyle_gp_test : public ::testing::TestWithParam<std::tuple<int
   static constexpr double eps{1e-7};
   Eigen::VectorXd phi_dbl{{length_scale_f, length_scale_g, sigma_f, sigma_g}};
 };
-/*
-TEST_F(laplace_motorcyle_gp_test, gp_motorcycle_val) {
-  // logger->current_test_name_ = "gp_motorcycle";
-  using stan::math::laplace_marginal_tol;
-  constexpr double tolerance = 1e-12;
-  constexpr int max_num_steps = 1000;
-  constexpr int hessian_block_size = 2;
-  constexpr int do_line_search = 1;
-  constexpr int max_steps_line_search = 10;
-
-  double target = laplace_marginal_tol<false>(
-      normal_likelihood{}, std::forward_as_tuple(y, n_obs),
-      covariance_motorcycle_functor{},
-      std::forward_as_tuple(x, phi_dbl(0), phi_dbl(1), phi_dbl(2), phi_dbl(3),
-                            n_obs),
-      theta0, tolerance, max_num_steps, hessian_block_size, 3,
-      max_steps_line_search, nullptr);
-}
-*/
-
 // If your original test lived in a fixture named laplace_motorcyle_gp_test,
 // we inherit from it to reuse x, y, n_obs, phi_dbl, theta0, etc.
 class LaplaceMotorcycleParamTest
@@ -138,11 +118,94 @@ class LaplaceMotorcycleParamTest
   void SetUp() override {}
 };
 
+TEST_P(LaplaceMotorcycleParamTest, gp_motorcycle_val) {
+  // One-time log sink initialization (safe across test cases)
+  static std::once_flag log_once;
+  std::call_once(log_once, [] {
+    JLOG().set_file("../laplace_moto.jsonl", false);
+    JLOG().init_builder("test", "gp_motorcycle_ad");
+  });
+  const auto [solver_num, hessian_block_size, max_steps_line_search] = GetParam();
+  if (theta0.size() % hessian_block_size != 0) {
+    GTEST_SKIP() << "Skipping: theta0.size() = " << theta0.size()
+                 << " not divisible by hessian_block_size = "
+                 << hessian_block_size;
+  }
+  using stan::math::laplace_marginal_tol;
+  constexpr double tolerance = 1e-12;
+  constexpr int max_num_steps = 1000;
+  static std::atomic<int> run_counter{0};
+
+  JLOG().init_builder("test", "gp_motorcycle_ad_" + std::to_string(solver_num) + "_" +
+                                  std::to_string(hessian_block_size) + "_" +
+                                  std::to_string(max_steps_line_search));
+    auto __b = JLOG().builder();
+    __b.field("component", "gp_motorcycle_ad")
+    .field("where", "param_test")
+    .field("event", "laplace_marginal_tol_call")
+    .field("v_level", 0)
+    .field("run_num", ++run_counter)
+    .begin_object("test")
+      .field("solver_num", solver_num)
+      .field("hessian_block_size", hessian_block_size)
+      .field("max_steps_line_search", max_steps_line_search)
+    .end()
+    .begin_object("autodiff")
+      .field("phi_01_v", false)
+      .field("phi_rest_v", false)
+    .end();
+
+  auto __t0 = std::chrono::high_resolution_clock::now();
+  try {
+  double target = laplace_marginal_tol<false>(
+      normal_likelihood{}, std::forward_as_tuple(y, n_obs),
+      covariance_motorcycle_functor{},
+      std::forward_as_tuple(x, phi_dbl(0), phi_dbl(1), phi_dbl(2), phi_dbl(3),
+                            n_obs),
+      theta0, tolerance, max_num_steps, hessian_block_size, solver_num,
+      max_steps_line_search, nullptr);
+    auto end_t0 = std::chrono::high_resolution_clock::now();
+    auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    end_t0 - __t0)
+                    .count();
+    __b.field("v_ns", (long long)__ns);
+    if (::testing::Test::HasNonfatalFailure()) {
+      __b.field("status","FAILURE");
+    } else {
+      __b.field("status","SUCCESS");
+    }
+    JLOG().commit_now(JsonLogger::Level::Debug,
+                      "gp_motorcycle_ad", __b);
+  } catch (const std::exception& e) {
+    auto end_t0 = std::chrono::high_resolution_clock::now();
+    auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    end_t0 - __t0)
+                    .count();
+    __b.field("error", e.what());
+    __b.field("v_ns", (long long)__ns);
+    if (::testing::Test::HasNonfatalFailure()) {
+      __b.field("status","FAILURE");
+    } else {
+      __b.field("status","SUCCESS");
+    }
+    JLOG().commit_now(JsonLogger::Level::Debug,
+                      "gp_motorcycle_ad", __b);
+    throw e;
+  }
+}
+
+
+
 
 TEST_P(LaplaceMotorcycleParamTest, gp_motorcycle_ad) {
   using stan::math::laplace_marginal_tol;
 
   const auto [solver_num, hessian_block_size, max_steps_line_search] = GetParam();
+  if (theta0.size() % hessian_block_size != 0) {
+    GTEST_SKIP() << "Skipping: theta0.size() = " << theta0.size()
+                 << " not divisible by hessian_block_size = "
+                 << hessian_block_size;
+  }
 
   // Prepare theta0 like the original test did (informed initial guess).
   for (int i = 0; i < n_obs - 1; i++) {
@@ -150,18 +213,7 @@ TEST_P(LaplaceMotorcycleParamTest, gp_motorcycle_ad) {
     theta0(2 * i + 1) = -1.0;
   }
 
-  if (theta0.size() % hessian_block_size != 0) {
-    GTEST_SKIP() << "Skipping: theta0.size() = " << theta0.size()
-                 << " not divisible by hessian_block_size = "
-                 << hessian_block_size;
-  }
 
-  // One-time log sink initialization (safe across test cases)
-  static std::once_flag log_once;
-  std::call_once(log_once, [] {
-    JLOG().set_file("../laplace_moto.jsonl", false);
-    JLOG().init_builder("test", "gp_motorcycle_ad");
-  });
   JLOG().init_builder("test", "gp_motorcycle_ad_" + std::to_string(solver_num) + "_" +
                                   std::to_string(hessian_block_size) + "_" +
                                   std::to_string(max_steps_line_search));
@@ -310,7 +362,11 @@ TEST_P(LaplaceMotorcycleParamTest, gp_motorcycle2_ad) {
   using stan::math::laplace_marginal_tol;
 
   const auto [solver_num, hessian_block_size, max_steps_line_search] = GetParam();
-
+  if (theta0.size() % hessian_block_size != 0) {
+    GTEST_SKIP() << "Skipping: theta0.size() = " << theta0.size()
+                 << " not divisible by hessian_block_size = "
+                 << hessian_block_size;
+  }
   using stan::math::gp_exp_quad_cov;
   using stan::math::laplace_marginal_tol;
   using stan::math::value_of;
@@ -400,6 +456,6 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 50)       // max_steps_line_search
+        ::testing::Values(0, 250)       // max_steps_line_search
     ),
     ParamName);

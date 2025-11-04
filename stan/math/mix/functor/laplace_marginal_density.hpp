@@ -623,10 +623,6 @@ inline auto laplace_marginal_density_est(
             .field("v_ns",(long long)__ns)
             .field("v_solver", options.solver);
           JLOG().commit_now(JsonLogger::Level::Debug, "laplace_iter", __b);
-          curr.alpha() = barzilai_borwein_step_size(
-              wolfe_info.p_, grad_fun(curr), prev_g, prev.alpha(),
-              wolfe_status.num_backtracks_, options.line_search.min_alpha,
-              options.line_search.max_alpha);
           auto __ls_t0 = std::chrono::high_resolution_clock::now();
           // If max_iterations is 0, do a full newton step
         wolfe_info.scratch_.alpha() = 1.0;
@@ -635,15 +631,43 @@ inline auto laplace_marginal_density_est(
             curr.alpha() = 1.0;
             wolfe_status.success_ = true;
             wolfe_status.stop_ = WolfeReturn::Wolfe;
-            while (!internal::check_armijo(wolfe_info.scratch_.eval_, prev.eval_, options.line_search) && wolfe_info.scratch_.alpha() > options.line_search.min_alpha) {
-                wolfe_info.scratch_.alpha() *= 0.5;
-                update_step(wolfe_info.scratch_, curr, prev, wolfe_info.scratch_.eval_, wolfe_info.p_);
-            }
             curr.update(wolfe_info.scratch_, wolfe_info.scratch_.eval_);
             curr.alpha() = 1.0;
         } else {
-            wolfe_status = internal::wolfe_line_search(wolfe_info, update_step,
-                                                      options.line_search, msgs);
+          if (internal::check_armijo(wolfe_info.scratch_.eval_, prev, options.line_search) &&
+              internal::check_wolfe(wolfe_info.scratch_.eval_, prev, options.line_search)) {
+              auto init_alpha = wolfe_info.curr_.alpha();
+              curr.alpha() = 1.0;
+              wolfe_status.success_ = true;
+              wolfe_status.stop_ = WolfeReturn::Wolfe;
+              auto __t0 = std::chrono::high_resolution_clock::now();
+              curr.update(wolfe_info.scratch_, wolfe_info.scratch_.eval_);
+              curr.alpha() = 1.0;
+              auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+              std::chrono::high_resolution_clock::now() - __t0).count();
+              auto __b = JLOG().builder();
+              __b.field("component","wolfe_line_search")
+                .field("where", "wolfe_return")
+                .field("event", "wolfe_return")
+                .field("v_level", 2)
+                .field("v_alpha_init", init_alpha)
+                .field("v_alpha_final", wolfe_info.curr_.alpha())
+                .field("v_obj_init", wolfe_info.prev_.obj())
+                .field("v_obj_final", wolfe_info.curr_.obj())
+                .field("v_ns",(long long)__ns)
+                .field("v_num_evals", 1)
+                .field("v_num_backtracks", 0)
+                .field("ret_code", wolfe_status_str(wolfe_status));
+                JLOG().commit_now(JsonLogger::Level::Debug, "wolfe", __b);
+            } else {
+              curr.alpha() = barzilai_borwein_step_size(
+                wolfe_info.p_, grad_fun(curr), prev_g, prev.alpha(),
+                wolfe_status.num_backtracks_, options.line_search.min_alpha,
+                options.line_search.max_alpha);
+
+              wolfe_status = internal::wolfe_line_search(wolfe_info, update_step,
+                                                        options.line_search, msgs);
+            }
         }
           auto __ls_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
               std::chrono::high_resolution_clock::now() - __ls_t0).count();

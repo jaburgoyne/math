@@ -56,12 +56,12 @@ TEST_P(PoissonLogPhiDim2, poisson_log_phi_dim_2) {
   using stan::math::to_vector;
   using stan::math::value_of;
   using stan::math::var;
- 
+
 
   if (theta_0.size() % hessian_block_size != 0) {
-    GTEST_SKIP() << "Skipping: theta_0.size() = " << theta_0.size()
-                 << " not divisible by hessian_block_size = "
-                 << hessian_block_size;
+    GTEST_SKIP() << "[          ] [  INFO  ]"
+                    << " Skipping test for hessian of size " << theta_0.size()
+                    << " with hessian block size of " << hessian_block_size << std::endl;
   }
 /*
   double target = laplace_marginal<false>(
@@ -163,7 +163,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 50)       // max_steps_line_search
+        ::testing::Values(0, 250)       // max_steps_line_search
     ),
     ParamName);
 
@@ -176,8 +176,7 @@ struct poisson_log_exposure_likelihood {
         delta_int, stan::math::add(theta, stan::math::log(ye)));
   }
 };
-
-TEST_P(laplace_disease_map_test, laplace_marginal) {
+TEST_P(laplace_disease_map_test, laplace_marginal_val) {
   using stan::math::laplace_marginal;
   using stan::math::laplace_marginal_poisson_log_lpmf;
   using stan::math::laplace_marginal_tol;
@@ -186,24 +185,48 @@ TEST_P(laplace_disease_map_test, laplace_marginal) {
   using stan::math::laplace_marginal_tol;
 
   const auto [solver_num, hessian_block_size, max_steps_line_search] = GetParam();
+  if (theta_0.size() % hessian_block_size != 0) {
+    GTEST_SKIP() << "Skipping: theta_0.size() = " << theta_0.size()
+                 << " not divisible by hessian_block_size = "
+                 << hessian_block_size;
+  }
+  // One-time log sink initialization (safe across test cases)
+  JLOG().init_builder("test", "disease_map_laplace_lpdf_" + std::to_string(solver_num) + "_" +
+                                  std::to_string(hessian_block_size) + "_" +
+                                  std::to_string(max_steps_line_search));
+  constexpr double tolerance = 1e-12;
+  constexpr int max_num_steps = 100;
+  double marginal_density = laplace_marginal_tol<false>(
+      poisson_log_exposure_likelihood{}, std::forward_as_tuple(ye, y),
+      stan::math::test::sqr_exp_kernel_functor{},
+      std::forward_as_tuple(x, phi_dbl(0), phi_dbl(1)), theta_0, tolerance,
+                max_num_steps, hessian_block_size, solver_num,
+                max_steps_line_search, nullptr);
+
+  constexpr double tol = 6e-4;
+  // Benchmark from GPStuff.
+  EXPECT_NEAR(-2866.88, value_of(marginal_density), tol);
+}
+TEST_P(laplace_disease_map_test, laplace_marginal_lpdf) {
+  using stan::math::laplace_marginal;
+  using stan::math::laplace_marginal_poisson_log_lpmf;
+  using stan::math::laplace_marginal_tol;
+  using stan::math::value_of;
+  using stan::math::var;
+  using stan::math::laplace_marginal_tol;
+
+  const auto [solver_num, hessian_block_size, max_steps_line_search] = GetParam();
+  if (theta_0.size() % hessian_block_size != 0) {
+    GTEST_SKIP() << "Skipping: theta_0.size() = " << theta_0.size()
+                 << " not divisible by hessian_block_size = "
+                 << hessian_block_size;
+  }
 
   // One-time log sink initialization (safe across test cases)
   JLOG().init_builder("test", "disease_map_laplace_lpdf_" + std::to_string(solver_num) + "_" +
                                   std::to_string(hessian_block_size) + "_" +
                                   std::to_string(max_steps_line_search));
 
-/*
-  {
-    double marginal_density = laplace_marginal<false>(
-        poisson_log_exposure_likelihood{}, std::forward_as_tuple(ye, y),
-        stan::math::test::sqr_exp_kernel_functor{},
-        std::forward_as_tuple(x, phi_dbl(0), phi_dbl(1)), nullptr);
-
-    constexpr double tol = 6e-4;
-    // Benchmark from GPStuff.
-    EXPECT_NEAR(-2866.88, value_of(marginal_density), tol);
-  }
-*/
   constexpr double tolerance = 1e-12;
   constexpr int max_num_steps = 100;
   int run_num = 0;
@@ -266,7 +289,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 50)       // max_steps_line_search
+        ::testing::Values(0, 250)       // max_steps_line_search
     ),
     ParamName);
 
@@ -283,6 +306,11 @@ TEST_P(bernoulli_logit_phi_dim500, laplace_lpdf_test) {
   using stan::math::laplace_marginal_tol;
   using stan::math::to_vector;
   const auto [solver_num, hessian_block_size, max_steps_line_search] = GetParam();
+  if (theta_0.size() % hessian_block_size != 0) {
+    GTEST_SKIP() << "Skipping: theta_0.size() = " << theta_0.size()
+                 << " not divisible by hessian_block_size = "
+                 << hessian_block_size;
+  }
 
   constexpr stan::test::ad_tolerances tols{
       stan::test::ad_gradient_tols{1e-8, 5e-3}};
@@ -350,6 +378,6 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 50)       // max_steps_line_search
+        ::testing::Values(0, 250)       // max_steps_line_search
     ),
     ParamName);
