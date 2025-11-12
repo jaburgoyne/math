@@ -65,7 +65,7 @@ TEST_P(LaplaceSolverGrid, laplace_marginal_neg_binomial_log_lpmf_phi_dim_2) {
     .end();
   auto __t0 = std::chrono::high_resolution_clock::now();
   try {
-    return laplace_marginal_tol_neg_binomial_2_log_lpmf(
+    auto val = laplace_marginal_tol_neg_binomial_2_log_lpmf(
         y, y_index, eta, 0, stan::math::test::squared_kernel_functor{},
         std::forward_as_tuple(x, alpha, rho), theta_0, tolerance,
         max_num_steps, hessian_block_size, solver_num,
@@ -82,6 +82,7 @@ TEST_P(LaplaceSolverGrid, laplace_marginal_neg_binomial_log_lpmf_phi_dim_2) {
       }
       JLOG().commit_now(JsonLogger::Level::Debug,
                         "laplace_marginal_neg_binomial_2", __b);
+      return val;
     } catch (const std::exception& e) {
       auto end_t0 = std::chrono::high_resolution_clock::now();
       auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -89,11 +90,7 @@ TEST_P(LaplaceSolverGrid, laplace_marginal_neg_binomial_log_lpmf_phi_dim_2) {
                       .count();
       __b.field("error", e.what());
       __b.field("v_ns", (long long)__ns);
-      if (::testing::Test::HasNonfatalFailure()) {
-        __b.field("status","FAILURE");
-      } else {
-        __b.field("status","SUCCESS");
-      }
+      __b.field("status","FAILURE");
       JLOG().commit_now(JsonLogger::Level::Debug,
                         "laplace_marginal_neg_binomial_2", __b);
       throw e;
@@ -108,7 +105,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 250)       // max_steps_line_search
+        ::testing::Values(0, 500, 1000)       // max_steps_line_search
     ),
     ParamName);
 
@@ -182,11 +179,7 @@ TEST_P(laplace_disease_map_test, laplace_marginal_neg_binomial_2_log_lpmf) {
                       .count();
       __b.field("error", e.what());
       __b.field("v_ns", (long long)__ns);
-      if (::testing::Test::HasNonfatalFailure()) {
-        __b.field("status","FAILURE");
-      } else {
-        __b.field("status","SUCCESS");
-      }
+      __b.field("status","FAILURE");
       JLOG().commit_now(JsonLogger::Level::Debug,
                         "disease_map_marginal_neg_binomial_2", __b);
       throw e;
@@ -203,6 +196,6 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 250)       // max_steps_line_search
+        ::testing::Values(0, 500, 1000)       // max_steps_line_search
     ),
     ParamName);

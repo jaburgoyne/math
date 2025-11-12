@@ -104,11 +104,7 @@ TEST_P(LaplaceSolverGrid, laplace_marginal_poisson_log_lpmf_phi_dim_2) {
                       .count();
       __b.field("error", e.what());
       __b.field("v_ns", (long long)__ns);
-      if (::testing::Test::HasNonfatalFailure()) {
-        __b.field("status","FAILURE");
-      } else {
-        __b.field("status","SUCCESS");
-      }
+      __b.field("status","FAILURE");
       JLOG().commit_now(JsonLogger::Level::Debug,
                         "laplace_marginal_poisson_lpmf", __b);
       throw e;
@@ -182,7 +178,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 250)       // max_steps_line_search
+        ::testing::Values(0, 500, 1000)       // max_steps_line_search
     ),
     ParamName);
 
@@ -269,13 +265,10 @@ TEST_P(laplace_disease_map_test, laplace_marginal_poisson_log_lpmf) {
                       .count();
       __b.field("error", e.what());
       __b.field("v_ns", (long long)__ns);
-      if (::testing::Test::HasNonfatalFailure()) {
-        __b.field("status","FAILURE");
-      } else {
-        __b.field("status","SUCCESS");
-      }
+      __b.field("status","FAILURE");
       JLOG().commit_now(JsonLogger::Level::Debug,
                         "disease_map_laplace_marginal_poisson_log", __b);
+      std::cout << "Caught exception: " << e.what() << std::endl;
       throw e;
     }
 
@@ -289,7 +282,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 250)       // max_steps_line_search
+        ::testing::Values(0, 500, 1000)       // max_steps_line_search
     ),
     ParamName);
 

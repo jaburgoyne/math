@@ -143,11 +143,7 @@ TEST_P(PoissonLogPhiDim2, poisson_log_phi_dim_2) {
                 end_t0 - __t0).count();
             __b.field("error", e.what());
             __b.field("v_ns",(long long)__ns);
-            if (::testing::Test::HasNonfatalFailure()) {
-              __b.field("status","FAILURE");
-            } else {
-              __b.field("status","SUCCESS");
-            }
+            __b.field("status","FAILURE");
             JLOG().commit_now(JsonLogger::Level::Debug, "poisson_log_phi_dim_2", __b);
             throw e;
           }
@@ -163,7 +159,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 250)       // max_steps_line_search
+        ::testing::Values(0, 500, 1000)       // max_steps_line_search
     ),
     ParamName);
 
@@ -271,11 +267,7 @@ TEST_P(laplace_disease_map_test, laplace_marginal_lpdf) {
                 end_t0 - __t0).count();
             __b.field("error", e.what());
             __b.field("v_ns",(long long)__ns);
-            if (::testing::Test::HasNonfatalFailure()) {
-              __b.field("status","FAILURE");
-            } else {
-              __b.field("status","SUCCESS");
-            }
+            __b.field("status","FAILURE");
             JLOG().commit_now(JsonLogger::Level::Debug, "laplace_marginal_disease_map", __b);
             throw e;
           }
@@ -289,7 +281,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 250)       // max_steps_line_search
+        ::testing::Values(0, 500, 1000)       // max_steps_line_search
     ),
     ParamName);
 
@@ -360,11 +352,7 @@ TEST_P(bernoulli_logit_phi_dim500, laplace_lpdf_test) {
                 end_t0 - __t0).count();
             __b.field("error", e.what());
             __b.field("v_ns",(long long)__ns);
-            if (::testing::Test::HasNonfatalFailure()) {
-              __b.field("status","FAILURE");
-            } else {
-              __b.field("status","SUCCESS");
-            }
+            __b.field("status","FAILURE");
             JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle_ad", __b);
             throw e;
           }
@@ -378,6 +366,6 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 250)       // max_steps_line_search
+        ::testing::Values(0, 500, 1000)       // max_steps_line_search
     ),
     ParamName);

@@ -123,11 +123,7 @@ TEST_P(bernoulli_logit_phi_dim500, specialized_function_ad_test) {
                         end_t0 - __t0)
                         .count();
         __b.field("v_ns", (long long)__ns);
-        if (::testing::Test::HasNonfatalFailure()) {
-          __b.field("status","FAILURE");
-        } else {
-          __b.field("status","SUCCESS");
-        }
+        __b.field("status","FAILURE");
         __b.field("exception", e.what());
         JLOG().commit_now(JsonLogger::Level::Debug,
                           "bernoulli_logit_dim_500", __b);
@@ -143,6 +139,6 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 250)       // max_steps_line_search
+        ::testing::Values(0, 500, 1000)       // max_steps_line_search
     ),
     ParamName);

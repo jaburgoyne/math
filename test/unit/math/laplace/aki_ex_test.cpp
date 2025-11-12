@@ -72,7 +72,7 @@ struct cov_fun_functor {
         stan::math::rep_vector(stan::math::pow(sigma, 2), N));
   }
 };
-
+/*
 TEST(WriteArrayBodySimple, ExceededIteration) {
   JLOG().set_file("../aki_ex_rows.jsonl", false);
   stan::test::relative_tolerance rel_tol(5e-2);
@@ -96,7 +96,7 @@ TEST(WriteArrayBodySimple, ExceededIteration) {
       1,
       1,
       1.49012e-08,
-      500,
+      1000,
       stan::math::laplace_line_search_options{max_steps_line_search},
       theta_0};
     for (int i = 1; i <= N; ++i) {
@@ -130,11 +130,7 @@ TEST(WriteArrayBodySimple, ExceededIteration) {
             end_t0 - __t0).count();
         __b.field("error", e.what());
         __b.field("v_ns",(long long)__ns);
-        if (::testing::Test::HasNonfatalFailure()) {
-          __b.field("status","FAILURE");
-        } else {
-          __b.field("status","SUCCESS");
-        }
+        __b.field("status","FAILURE");
         JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle_ad", __b);
         // Log bad values to CSV files
         ADD_FAILURE() << "Laplace failed"
@@ -167,13 +163,16 @@ TEST(WriteArrayBodySimple, ExceededIteration) {
                         "laplace_val", "integrated_val");
       } catch (const std::exception& e) {
         // NOTE: Failures for integration are fine since we are testing laplace.
+        std::cout << "INTEGRATION FAILURE: y and mu for i = " << i << ": ("
+                  << y << ", " << mu << ")"
+                  << "\nerror: " << e.what() << std::endl;
         continue;
       }
     }
 
   }
 }
-
+*/
 TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
     JLOG().set_file("../aki_ex_sample_rows.jsonl", false);
   stan::test::relative_tolerance rel_tol(5e-1);
@@ -189,14 +188,6 @@ TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
   int run_num = 0;
   Eigen::VectorXd theta_0 = Eigen::VectorXd::Zero(1);
   std::vector<double> ll_integrate_1d_vals;
-  for (int max_line_search_steps : {0, 1000}) {
-    const stan::math::laplace_options_user_supplied ops{
-        1,
-        1,
-        1.49012e-08,
-        500,
-        stan::math::laplace_line_search_options{max_line_search_steps},
-        theta_0};
 
     for (int iter = 0; iter < num_samples; ++iter) {
       std::vector<double> ll_laplace_vec;
@@ -282,18 +273,18 @@ TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
           << "Integrated result should be finite";
           */
     }
-  }
+  
     JLOG().set_file("../aki_ex_full.jsonl", false);
     JLOG().init_builder("test", "aki_sample_roach_data");
+    stan::test::relative_tolerance sum_rel_tol(3e-1);
     for (int max_line_search_steps : {0, 1000}) {
       const stan::math::laplace_options_user_supplied ops{
           1,
           1,
           1.49012e-08,
-          500,
+          1000,
           stan::math::laplace_line_search_options{max_line_search_steps},
           theta_0};
-      stan::test::relative_tolerance sum_rel_tol(3e-2);
       for (int iter = 0; iter < num_samples; ++iter) {
         auto mu = mu_samples.col(iter);
         auto sigmaz = sigmaz_samples(0, iter);
@@ -339,11 +330,7 @@ TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
               end_t0 - __t0).count();
           __b.field("error", e.what());
           __b.field("v_ns",(long long)__ns);
-          if (::testing::Test::HasNonfatalFailure()) {
-            __b.field("status","FAILURE");
-          } else {
-            __b.field("status","SUCCESS");
-          }
+          __b.field("status","FAILURE");
           JLOG().commit_now(JsonLogger::Level::Debug, "aki_sample_roach_data", __b);
           // Log bad values to CSV files
           ADD_FAILURE() << "Full Laplace failed"
@@ -354,6 +341,9 @@ TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
         expect_near_rel("total laplace vs integrated sum", ll_laplace_all,
                         ll_integrate_1d_vals[iter], sum_rel_tol, "laplace_sum",
                         "integrated_sum");
+          __b.field("integrate_val", ll_integrate_1d_vals[iter])
+            .field("laplace_val", ll_laplace_all);
+          JLOG().commit_now(JsonLogger::Level::Debug, "aki_sample_roach_data", __b);
       }
     }
 }

@@ -143,7 +143,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 250)       // max_steps_line_search
+        ::testing::Values(0, 500, 1000)       // max_steps_line_search
     ),
     ParamName);
 

@@ -601,7 +601,7 @@ inline auto laplace_marginal_density_est(
   auto update_line_search
       = [&grad_fun, &obj_fun, &covariance, &prev_g, &update_step, &theta_grad_f, &options,
          &msgs](auto&& wolfe_status, auto&& wolfe_info, auto&& curr,
-                auto&& prev) {
+                auto&& prev, auto iter) {
           wolfe_info.p_ = curr.a() - prev.a();
           prev_g.noalias() = grad_fun(prev);
           wolfe_info.init_dir_ = prev_g.dot(wolfe_info.p_);
@@ -610,9 +610,7 @@ inline auto laplace_marginal_density_est(
             wolfe_info.p_ = -wolfe_info.p_;
             wolfe_info.init_dir_ = -wolfe_info.init_dir_;
           }
-          curr.theta().noalias() = covariance * curr.a();
           auto __t0 = std::chrono::high_resolution_clock::now();
-          curr.theta_grad() = theta_grad_f(curr.theta());
           auto __ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
               std::chrono::high_resolution_clock::now() - __t0).count();
           auto __b = JLOG().builder();
@@ -626,13 +624,28 @@ inline auto laplace_marginal_density_est(
           auto __ls_t0 = std::chrono::high_resolution_clock::now();
           // If max_iterations is 0, do a full newton step
         wolfe_info.scratch_.alpha() = 1.0;
-        update_step(wolfe_info.scratch_, curr, prev, wolfe_info.scratch_.eval_, wolfe_info.p_);
+        while (true && wolfe_info.scratch_.alpha() > options.line_search.min_alpha) {
+          try{
+            update_step(wolfe_info.scratch_, curr, prev, wolfe_info.scratch_.eval_, wolfe_info.p_);
+            if (!wolfe_info.scratch_.theta_grad_.allFinite() || !wolfe_info.scratch_.theta_.allFinite() ||
+            !std::isfinite(wolfe_info.scratch_.eval_.obj()) || !std::isfinite(wolfe_info.scratch_.eval_.dir())) {
+              wolfe_info.scratch_.alpha() *= 0.5;
+            } else {
+              break;
+            }
+          } catch (const std::exception& e) {
+            wolfe_info.scratch_.alpha() *= 0.5;
+          }
+        }
+        if (wolfe_info.scratch_.alpha() <= options.line_search.min_alpha) {
+          wolfe_status.success_ = false;
+          wolfe_status.stop_ = WolfeReturn::Fail;
+          return true;
+        }
         if (options.line_search.max_iterations == 0) {
-            curr.alpha() = 1.0;
             wolfe_status.success_ = true;
             wolfe_status.stop_ = WolfeReturn::Wolfe;
             curr.update(wolfe_info.scratch_, wolfe_info.scratch_.eval_);
-            curr.alpha() = 1.0;
         } else {
           if (internal::check_armijo(wolfe_info.scratch_.eval_, prev, options.line_search) &&
               internal::check_wolfe(wolfe_info.scratch_.eval_, prev, options.line_search)) {
@@ -661,7 +674,7 @@ inline auto laplace_marginal_density_est(
                 JLOG().commit_now(JsonLogger::Level::Debug, "wolfe", __b);
             } else {
               curr.alpha() = barzilai_borwein_step_size(
-                wolfe_info.p_, grad_fun(curr), prev_g, prev.alpha(),
+                wolfe_info.p_, grad_fun(wolfe_info.scratch_), prev_g, prev.alpha(),
                 wolfe_status.num_backtracks_, options.line_search.min_alpha,
                 options.line_search.max_alpha);
 
@@ -732,7 +745,7 @@ inline auto laplace_marginal_density_est(
                     * LT.solve(L.solve(W_r.cwiseProduct(covariance * b)));
         if (!final_loop) {
           finish_update
-              = update_line_search(wolfe_status, wolfe_info, curr, prev);
+              = update_line_search(wolfe_status, wolfe_info, curr, prev, i);
         }
         auto __iter_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::high_resolution_clock::now() - __iter_t0).count();
@@ -814,7 +827,7 @@ inline auto laplace_marginal_density_est(
             = b - W_r * LT.solve(L.solve(W_r * (covariance * b)));
         if (!final_loop) {
           finish_update
-              = update_line_search(wolfe_status, wolfe_info, curr, prev);
+              = update_line_search(wolfe_status, wolfe_info, curr, prev, i);
         }
         auto __iter_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::high_resolution_clock::now() - __iter_t0).count();
@@ -875,7 +888,7 @@ inline auto laplace_marginal_density_est(
               LT.solve(L.solve(K_root.transpose() * b)));
       if (!final_loop) {
         finish_update
-            = update_line_search(wolfe_status, wolfe_info, curr, prev);
+            = update_line_search(wolfe_status, wolfe_info, curr, prev, i);
       }
       auto __iter_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
       std::chrono::high_resolution_clock::now() - __iter_t0).count();
@@ -926,7 +939,7 @@ inline auto laplace_marginal_density_est(
       curr.a().noalias() = b - W * LU.solve(covariance * b);
       if (!final_loop) {
         finish_update
-            = update_line_search(wolfe_status, wolfe_info, curr, prev);
+            = update_line_search(wolfe_status, wolfe_info, curr, prev, i);
       }
       auto __iter_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
       std::chrono::high_resolution_clock::now() - __iter_t0).count();

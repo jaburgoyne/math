@@ -38,7 +38,7 @@ struct laplace_line_search_options {
   constexpr explicit laplace_line_search_options(int max_iter)
       : max_iterations(max_iter) {}
   constexpr laplace_line_search_options() = default;
-  int max_iterations{50};
+  int max_iterations{500};
   /**
    * @brief Armijo condition parameter (sufficient decrease).
    *
@@ -392,11 +392,11 @@ inline auto wolfe_status_str(WolfeStatus s) {
  */
 struct Eval {
   // alpha
-  double alpha_{0.0};
+  double alpha_{std::numeric_limits<double>::quiet_NaN()};
   // obj
-  double obj_{0.0};
+  double obj_{std::numeric_limits<double>::lowest()};
   // directional derivative
-  double dir_{0.0};
+  double dir_{std::numeric_limits<double>::quiet_NaN()};
   inline auto&& alpha() { return alpha_; }
   inline const auto& alpha() const { return alpha_; }
   inline auto&& obj() { return obj_; }
@@ -491,9 +491,9 @@ struct WolfeInfo {
   template <typename ObjFun, typename Theta0, typename ThetaGradF>
   WolfeInfo(ObjFun&& obj_fun, Eigen::Index n, Theta0&& theta0,
             ThetaGradF&& theta_grad_f)
-      : curr_(std::forward<ObjFun>(obj_fun), n, std::forward<Theta0>(theta0),
+      : curr_(n),
+        prev_(std::forward<ObjFun>(obj_fun), n, std::forward<Theta0>(theta0),
               std::forward<ThetaGradF>(theta_grad_f)),
-        prev_(curr_),
         scratch_(n) {
     if (!std::isfinite(curr_.obj())) {
       throw std::domain_error(
@@ -514,6 +514,16 @@ struct WolfeInfo {
         p_(Eigen::VectorXd::Zero(n)),
         init_dir_(0.0) {}
 };
+
+template <typename T>
+inline bool all_finite(T&& m) {
+  if constexpr (stan::is_eigen_v<T>) {
+    return m.array().isFinite().all();               // catches NaN and ±Inf
+  } else {
+    return std::isfinite(stan::math::value_of_rec(m));  // scalar case
+  }
+}
+
 
 /**
  * @brief Strong-Wolfe line search with expansion, bracketing, and
@@ -722,6 +732,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
     JLOG().commit_now(JsonLogger::Level::Debug, "wolfe", __b);
     return ws;
   };
+
   auto& curr = wolfe_info.curr_;
   auto& prev = wolfe_info.prev_;
   auto& scratch = wolfe_info.scratch_;
@@ -743,11 +754,16 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
     update_fun(buf, curr, prev, e, p);
     ++total_updates;
   };
-  auto check_infinite = [](auto&& step_eval, const WolfeData& wd) {
-    return !(std::isfinite(step_eval.obj()) && wd.theta().allFinite());
+  auto is_valid = [](const Eval& e, const WolfeData& step) {
+    // We check BOTH the eval (obj/dir/alpha) and the state living in `scratch`.
+    const bool ok_eval  = all_finite(e.alpha()) && all_finite(e.obj()) && all_finite(e.dir());
+    const bool ok_theta = all_finite(step.theta());
+    const bool ok_grad  = all_finite(step.theta_grad());
+    const bool ok_a     = all_finite(step.a());
+    return ok_eval && ok_theta && ok_grad && ok_a;
   };
 
-  auto check_max_steps = [&check_infinite, &__log_return, &assign_step, &p, &total_updates, &armijo_ok,
+  auto check_max_steps = [&is_valid, &__log_return, &assign_step, &p, &total_updates, &armijo_ok,
                           &wolfe_ok, &update_with_tick,
                           &msgs](auto&& scratch, auto&& curr, auto&& prev,
                                  auto&& best, auto&& opt) {
@@ -756,18 +772,20 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
       debug::print("total_updates", total_updates);
       if (armijo_ok(best)) {
         update_with_tick(scratch, best, p);
-        assign_step(curr, scratch, best);
-        if (wolfe_ok(best)) {
-          return WolfeStatus{WolfeReturn::Wolfe, total_updates, 0, true};
-        } else {
-          return WolfeStatus{WolfeReturn::Armijo, total_updates, 0, true};
+        if (is_valid(best, scratch)) {
+          assign_step(curr, scratch, best);
+          if (wolfe_ok(best)) {
+            return WolfeStatus{WolfeReturn::Wolfe, total_updates, 0, true};
+          } else {
+            return WolfeStatus{WolfeReturn::Armijo, total_updates, 0, true};
+          }
         }
       }
-      while (!armijo_ok(best) && best.alpha() > opt.min_alpha && !check_infinite(best, scratch)) {
+      while (best.alpha() > opt.min_alpha && !is_valid(best, scratch)) {
         best.alpha() *= opt.tau;
         update_with_tick(scratch, best, p);
       }
-      if (best.alpha() > opt.min_alpha && armijo_ok(best)) {
+      if (best.alpha() > opt.min_alpha && armijo_ok(best) && is_valid(best, scratch)) {
         update_with_tick(scratch, best, p);
         assign_step(curr, scratch, best);
         return WolfeStatus{WolfeReturn::Armijo, total_updates, 0, true};
@@ -783,7 +801,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
   update_with_tick(scratch, high, p);
   Eval best = low;  // keep the best Armijo-OK in case strong-Wolfe fails
   {
-    while (check_infinite(high, scratch)) {
+    while (!is_valid(high, scratch)) {
       high.alpha() *= opt.tau;
       if (high.alpha() < opt.min_alpha) {
         debug::print("Exit on precheck numerical trouble", 1);
@@ -804,7 +822,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
       if (wolfe_ok(high)) {
         // Try zooming up till we hit a fail
         best = high;
-        while (armijo_ok(high) && wolfe_ok(high) && !check_infinite(high, scratch)) {
+        while (armijo_ok(high) && wolfe_ok(high) && is_valid(high, scratch)) {
           best = high;
           auto check_steps = check_max_steps(scratch, curr, prev, best, opt);
           if (check_steps.stop_ != WolfeReturn::Continue) {
@@ -820,7 +838,9 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
                        "deriv_init: ", dir_deriv_init);
         }
         debug::print("Exit on first precheck", 1);
-        update_with_tick(scratch, best, p);
+        if (best.alpha() != high.alpha()) {
+          update_with_tick(scratch, best, p);
+        }
         assign_step(curr, scratch, best);
         debug::print("total_updates", total_updates);
         return __log_return(WolfeStatus{WolfeReturn::Wolfe, total_updates, 0, true});
@@ -862,7 +882,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
     num_backtracks++;
     // 1. Evaluate f(alpha) and g(alpha)
     update_with_tick(scratch, high, p);
-    const bool finite_ok = !check_infinite(high, scratch);
+    const bool finite_ok = is_valid(high, scratch);
     // 2. Handle numerical trouble first
     if (!finite_ok) {  //   f or g is NaN/Inf → shrink
       high.alpha() *= 0.5;
@@ -908,8 +928,8 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
         std::abs(curr_eval.obj() - prev.obj()) <= obj_tol
             && curr_eval.alpha() < opt.min_alpha) {  // tiny gain
       bool step_ok = curr_eval.obj() != low.obj() && armijo_ok(curr_eval);
-      if (step_ok) {
-        update_with_tick(scratch, curr_eval, p);
+      update_with_tick(scratch, curr_eval, p);
+      if (step_ok && is_valid(curr_eval, scratch)) {
         assign_step(curr, scratch, curr_eval);
       }
       debug::print("total_updates", total_updates);
@@ -939,7 +959,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
   if (check_b.stop_ != WolfeReturn::Continue) {
     return __log_return(check_b);
   }
-  update_with_tick(scratch, high, p);
+//  update_with_tick(scratch, high, p);
 
   debug::print("_______End First While: ", 1, "high.alpha(): ", high.alpha(),
                "high.obj():   ", high.obj(), "high.dir(): ", high.dir(),
@@ -956,8 +976,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
          && (high.alpha() - low.alpha() > opt.min_alpha)) {
     Eval mid{0.5 * (low.alpha() + high.alpha()), 0.0, 0.0};
     update_with_tick(scratch, mid, p);
-    if (!std::isfinite(mid.obj()) || !std::isfinite(mid.dir())
-        || !scratch.theta().allFinite() || !scratch.theta_grad().allFinite()) {
+    if (!is_valid(mid, scratch)) {
       high.alpha() *= opt.tau;
       if (high.alpha() < opt.min_alpha) {
         break;
@@ -991,9 +1010,8 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
     const double diff_alpha = high.alpha() - low.alpha();
     mid.alpha() = cubic_or_bisect_max(low, high, opt);
     update_with_tick(scratch, mid, p);
-    const bool finite_ok
-        = std::isfinite(mid.obj()) && scratch.theta().allFinite();
-    if (!finite_ok) {
+    const bool infinite_check = !is_valid(mid, scratch);
+    if (infinite_check) {
       debug::print("Exit on failed finite test", 1);
       high = mid;
       continue;
@@ -1049,8 +1067,8 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
   // armijo
   const bool armijo_ok_mid = armijo_ok(best);
   const bool curve_ok_mid = wolfe_ok(best);
-  if (armijo_ok_mid) {
-    update_with_tick(scratch, best, p);
+  update_with_tick(scratch, best, p);
+  if (armijo_ok_mid && is_valid(best, scratch)) {
     assign_step(curr, scratch, best);
     debug::print("Exit on only satisfying armijo", 1);
     debug::print("total_updates", total_updates);

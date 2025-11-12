@@ -285,11 +285,7 @@ TEST_P(LaplaceMotorcycleParamTest, gp_motorcycle_ad) {
                       .count();
       __b.field("error", e.what());
       __b.field("v_ns", (long long)__ns);
-      if (::testing::Test::HasNonfatalFailure()) {
-        __b.field("status","FAILURE");
-      } else {
-        __b.field("status","SUCCESS");
-      }
+      __b.field("status","FAILURE");
       JLOG().commit_now(JsonLogger::Level::Debug,
                         "gp_motorcycle_ad", __b);
       throw e;
@@ -436,11 +432,7 @@ TEST_P(LaplaceMotorcycleParamTest, gp_motorcycle2_ad) {
                 end_t0 - __t0).count();
             __b.field("error", e.what());
             __b.field("v_ns",(long long)__ns);
-            if (::testing::Test::HasNonfatalFailure()) {
-              __b.field("status","FAILURE");
-            } else {
-              __b.field("status","SUCCESS");
-            }
+            __b.field("status","FAILURE");
             JLOG().commit_now(JsonLogger::Level::Debug, "gp_motorcycle2_ad", __b);
             throw e;
           }
@@ -456,6 +448,6 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(1, 2, 3),      // solver_num
         ::testing::Values(1, 2, 3),      // hessian_block_size
-        ::testing::Values(0, 250)       // max_steps_line_search
+        ::testing::Values(0, 500, 1000)       // max_steps_line_search
     ),
     ParamName);
