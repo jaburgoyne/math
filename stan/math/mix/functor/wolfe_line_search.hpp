@@ -717,7 +717,7 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
       = [](WolfeData& out, WolfeData& buf, Eval& e) { out.update(buf, e); };
   auto update_with_tick = [&total_updates, &update_fun, &prev, &curr](
                               WolfeData& buf, Eval& e, auto&& p) {
-    update_fun(buf, curr, prev, e, p);
+    update_fun(buf, e, curr, prev, p);
     ++total_updates;
   };
   auto check_max_steps = [&assign_step, &p, &total_updates, &armijo_ok,

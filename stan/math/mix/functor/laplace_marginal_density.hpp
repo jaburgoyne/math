@@ -493,39 +493,26 @@ inline auto laplace_marginal_density_est(
 
   const Eigen::Index theta_size = covariance.rows();
 
-  if (unlikely(theta_size % options.hessian_block_size != 0)) {
+  if (unlikely(theta_size % options.hessian_block_size != 0 ||
+    theta_size < options.hessian_block_size)) {
     [&]() STAN_COLD_PATH {
       std::stringstream msg;
       msg << "laplace_marginal_density: The hessian size (" << theta_size
-          << ", " << theta_size
-          << ") is not divisible by the hessian block size ("
-          << options.hessian_block_size
+          << ", " << theta_size << ")";
+      if (theta_size % options.hessian_block_size != 0) {
+        msg << " is not divisible by the hessian block size (";
+      } else {
+        msg << " is smaller than the hessian block size (";
+      }
+      msg << options.hessian_block_size
           << ")"
-             ". Try a hessian block size such as [1, ";
+             ". Use a hessian block size such as [1, ";
       for (int i = 2; i < 12; ++i) {
         if (theta_size % i == 0) {
           msg << i << ", ";
         }
       }
-      msg.str().pop_back();
-      msg.str().pop_back();
-      msg << "].";
-      throw std::domain_error(msg.str());
-    }();
-  } else if (unlikely(theta_size < options.hessian_block_size)) {
-    [&]() STAN_COLD_PATH {
-      std::stringstream msg;
-      msg << "laplace_marginal_density: The hessian size (" << theta_size
-          << ", " << theta_size << ") is smaller than the hessian block size ("
-          << options.hessian_block_size
-          << "). Try a hessian block size such as [1, ";
-      for (int i = 2; i < theta_size; ++i) {
-        if (theta_size % i == 0) {
-          msg << i << ", ";
-        }
-      }
-      msg.str().pop_back();
-      msg.str().pop_back();
+      msg << "... " << theta_size;
       msg << "].";
       throw std::domain_error(msg.str());
     }();
@@ -564,19 +551,19 @@ inline auto laplace_marginal_density_est(
     return -covariance * step.a() + covariance * step.theta_grad();
   };
   auto update_step = [&covariance, &obj_fun, &theta_grad_f, &grad_fun](
-                         auto& step_info, auto&& /* curr */, auto&& prev,
-                         auto& eval_in, auto&& p) {
-    step_info.a() = prev.a() + eval_in.alpha() * p;
+                         auto& step_info, auto& eval_in, auto&& /* curr */, auto&& prev, auto&& p) {
+    step_info.a().noalias() = prev.a() + eval_in.alpha() * p;
     step_info.theta().noalias() = covariance * step_info.a();
-    step_info.theta_grad() = theta_grad_f(step_info.theta());
+    step_info.theta_grad().noalias() = theta_grad_f(step_info.theta());
     eval_in.obj() = obj_fun(step_info.a(), step_info.theta());
     eval_in.dir() = grad_fun(step_info).dot(p);
   };
   Eigen::VectorXd prev_g(theta_size);
   auto update_line_search
-      = [&grad_fun, &covariance, &prev_g, &update_step, &theta_grad_f, &options,
-         &msgs](auto&& wolfe_status, auto&& wolfe_info, auto&& curr,
-                auto&& prev) {
+      = [&grad_fun, &covariance, &prev_g, &update_step, &theta_grad_f,
+         &options, &msgs](
+          auto&& wolfe_status, auto&& wolfe_info, auto&& curr, auto&& prev) {
+          auto&& line_opt = options.line_search;
           wolfe_info.p_ = curr.a() - prev.a();
           prev_g.noalias() = grad_fun(prev);
           wolfe_info.init_dir_ = prev_g.dot(wolfe_info.p_);
@@ -585,17 +572,48 @@ inline auto laplace_marginal_density_est(
             wolfe_info.p_ = -wolfe_info.p_;
             wolfe_info.init_dir_ = -wolfe_info.init_dir_;
           }
-          curr.theta().noalias() = covariance * curr.a();
-          curr.theta_grad() = theta_grad_f(curr.theta());
-          curr.alpha() = barzilai_borwein_step_size(
-              wolfe_info.p_, grad_fun(curr), prev_g, prev.alpha(),
-              wolfe_status.num_backtracks_, options.line_search.min_alpha,
-              options.line_search.max_alpha);
-          wolfe_status = internal::wolfe_line_search(wolfe_info, update_step,
-                                                     options.line_search, msgs);
-          debug::print("", 1, "Objective old: ", prev.obj(),
-                       "Objective new: ", curr.obj(),
-                       "Step size:      ", curr.alpha());
+          auto&& scratch = wolfe_info.scratch_;
+          scratch.alpha() = 1.0;
+          while (true && scratch.alpha() > line_opt.min_alpha) {
+            try{
+              update_step(scratch, scratch.eval_, curr, prev, wolfe_info.p_);
+              if (!scratch.theta_grad_.allFinite() || !scratch.theta_.allFinite() ||
+              !std::isfinite(scratch.eval_.obj()) || !std::isfinite(scratch.eval_.dir())) {
+                scratch.alpha() *= line_opt.tau;
+              } else {
+                break;
+              }
+            } catch (const std::exception& e) {
+              scratch.alpha() *= line_opt.tau;
+            }
+          }
+          if (scratch.alpha() <= line_opt.min_alpha) {
+            wolfe_status.success_ = false;
+            wolfe_status.stop_ = WolfeReturn::Fail;
+            return true;
+          }
+          if (line_opt.max_iterations == 0) {
+              wolfe_status.success_ = true;
+              wolfe_status.stop_ = WolfeReturn::Wolfe;
+              curr.update(scratch, scratch.eval_);
+          } else {
+            if (internal::check_armijo(scratch.eval_, prev, line_opt) &&
+                internal::check_wolfe(scratch.eval_, prev, line_opt)) {
+                auto init_alpha = wolfe_info.curr_.alpha();
+                curr.alpha() = 1.0;
+                wolfe_status.success_ = true;
+                wolfe_status.stop_ = WolfeReturn::Wolfe;
+                curr.update(scratch, scratch.eval_);
+                curr.alpha() = 1.0;
+              } else {
+                curr.alpha() = barzilai_borwein_step_size(
+                  wolfe_info.p_, grad_fun(scratch), prev_g, prev.alpha(),
+                  wolfe_status.num_backtracks_, line_opt.min_alpha,
+                  line_opt.max_alpha);
+                wolfe_status = internal::wolfe_line_search(wolfe_info, update_step,
+                                                          line_opt, msgs);
+              }
+          }
           return abs(curr.obj() - prev.obj()) < options.tolerance
                  || (!wolfe_status.success_ && curr.obj() <= prev.obj());
         };

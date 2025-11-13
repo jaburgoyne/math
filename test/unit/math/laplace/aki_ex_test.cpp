@@ -121,35 +121,6 @@ TEST(WriteArrayBodySimple, ExceededIteration) {
     }
   }
 }
-
-TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
-  stan::test::relative_tolerance rel_tol(5e-1);
-  const double integrate_1d_reltol = 1e-8;
-  auto&& y = stan::math::test::roaches::y;
-  auto&& sigmaz_samples = stan::math::test::roaches::sigmaz;
-  auto mu_samples = stan::math::test::laplace::read_matrix_csv(
-      "./test/unit/math/laplace/roach_data/mu.csv");
-  const int num_samples = mu_samples.cols();
-  const int N = mu_samples.rows();
-  std::ostream* pstream = nullptr;
-  for (int iter = 0; iter < num_samples; ++iter) {
-    std::vector<double> ll_laplace_vec;
-    double ll_integrate_1d = 0;
-    double ll_laplace = 0;
-    std::vector<double> ll_integrate_1d_vec;
-    auto mu = mu_samples.col(iter);
-    auto sigmaz = sigmaz_samples(0, iter);
-    for (int i = 1; i <= N; ++i) {
-      //      std::cout << "y and mu for (i, iter) = (" << i << ", " << iter <<
-      //      "): ("
-      //                << y[i - 1] << ", " << mu[i - 1] << ")" << std::endl;
-      double ll_laplace_val{0};
-      try {
-        ll_laplace_val = stan::math::laplace_marginal(
-            poisson_re_log_ll_functor(),
-            std::forward_as_tuple(y[i - 1], mu[i - 1]), cov_fun_functor(),
-            std::tuple<double, int>(sigmaz, 1), pstream);
-      } catch (const std::domain_error& e) {
         // Log bad values to CSV files
 
         /*
@@ -163,47 +134,87 @@ TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
            << '\n'; mu_bad << mu[i - 1] << '\n'; sigma_bad << sigmaz << '\n';
                   }
         */
-        ADD_FAILURE() << "LAPLACE FAILURE: y and mu for i = " << i << ": ("
-                      << y[i - 1] << ", " << mu[i - 1] << ")"
-                      << "\nerror: " << e.what() << std::endl;
-        continue;
-      }
+
+TEST(WriteArrayBodySimple, ExecutesBodyWithHardcodedData) {
+  const double integrate_1d_reltol = 1e-8;
+  auto&& y = stan::math::test::roaches::y;
+  auto&& sigmaz_samples = stan::math::test::roaches::sigmaz;
+  auto mu_samples = stan::math::test::laplace::read_matrix_csv(
+      "./test/unit/math/laplace/roach_data/mu.csv");
+  const auto num_samples = mu_samples.cols();
+  const auto N = mu_samples.rows();
+  std::ostream* pstream = nullptr;
+  Eigen::MatrixXd ll_integrate_samples(N, num_samples);
+  Eigen::VectorXd ll_integrate_1d(num_samples);
+  std::vector<bool> integrate_success_sum(num_samples, true);
+  Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic> integrate_success_i =
+    Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic>::Constant(N, num_samples, true);
+  for (Eigen::Index iter = 0; iter < num_samples; ++iter) {
+    double ll_integrate_sum = 0;
+    for (int i = 0; i < N; ++i) {
+      auto mu = mu_samples.col(iter);
+      auto sigmaz = sigmaz_samples(0, iter);
       double piece{0};
       try {
         piece = stan::math::integrate_1d(
             integrand_functor(), stan::math::negative_infinity(),
             stan::math::positive_infinity(),
-            std::vector<double>{sigmaz, mu[i - 1]}, std::vector<double>{0},
-            std::vector<int>{y[i - 1]}, pstream, integrate_1d_reltol);
-        ll_laplace_vec.push_back(ll_laplace_val);
-        ll_integrate_1d_vec.push_back(std::log(piece));
-        ll_integrate_1d += std::log(piece);
-        ll_laplace += ll_laplace_val;
-        std::string msg = std::string("for (i) = (") + std::to_string(i)
+            std::vector<double>{sigmaz, mu[i]}, std::vector<double>{0},
+            std::vector<int>{y[i]}, pstream, integrate_1d_reltol);
+        ll_integrate_samples(i, iter) = std::log(piece);
+        ll_integrate_sum += std::log(piece);
+        std::string msg = std::string("for (") + std::to_string(i)
                           + "), laplace and integrated results should be close";
-        expect_near_rel(msg, ll_laplace_val, std::log(piece), rel_tol,
-                        "laplace_val", "integrated_val");
       } catch (const std::domain_error& e) {
         // Note: Integration failures are fine since we are testing laplace.
+        integrate_success_i(i, iter) = false;
+        integrate_success_sum[iter] = false;
         continue;
       }
     }
-    auto ll_laplace_all = stan::math::laplace_marginal(
-        poisson_re_log_ll_functor(), std::forward_as_tuple(y, mu),
-        cov_fun_functor(), std::tuple<double, int>(sigmaz, N), pstream);
-    // Assertions
-    //    std::cout << "ll_laplace: " << ll_laplace << "\nll_laplace_all: " <<
-    //    ll_laplace_all << "\nll_integrate_1d: " << ll_integrate_1d <<
-    //    std::endl;
-    stan::test::relative_tolerance sum_rel_tol(3e-2);
-    expect_near_rel("sum laplace vs integrated sum", ll_laplace,
-                    ll_integrate_1d, sum_rel_tol, "laplace_sum",
-                    "integrated_sum");
-    expect_near_rel("total laplace vs integrated sum", ll_laplace_all,
-                    ll_integrate_1d, sum_rel_tol, "laplace_sum",
-                    "integrated_sum");
-    EXPECT_TRUE(std::isfinite(ll_laplace)) << "Laplace result should be finite";
-    EXPECT_TRUE(std::isfinite(ll_integrate_1d))
-        << "Integrated result should be finite";
+    ll_integrate_1d(iter) = ll_integrate_sum;
+  }
+  constexpr stan::test::relative_tolerance rel_tol(5e-1);
+  for (Eigen::Index iter = 0; iter < num_samples; ++iter) {
+    double ll_laplace = 0;
+    auto mu = mu_samples.col(iter);
+    auto sigmaz = sigmaz_samples(0, iter);
+    for (int i = 0; i < N; ++i) {
+      double ll_laplace_val{0};
+      try {
+        ll_laplace_val = stan::math::laplace_marginal(
+            poisson_re_log_ll_functor(),
+            std::forward_as_tuple(y[i], mu[i]), cov_fun_functor(),
+            std::tuple<double, int>(sigmaz, 1), pstream);
+        ll_laplace += ll_laplace_val;
+      } catch (const std::domain_error& e) {
+        ADD_FAILURE() << "LAPLACE FAILURE: y and mu for i = " << i << ": ("
+                      << y[i] << ", " << mu[i] << ")"
+                      << "\nerror: " << e.what() << std::endl;
+        continue;
+      }
+      if (integrate_success_i(i, iter)) {
+        std::string msg = std::string("for (") + std::to_string(i) + ", "
+                          + std::to_string(iter) +
+                          "), laplace and integrated results should be close";
+        expect_near_rel(msg, ll_laplace_val, ll_integrate_samples(i, iter), rel_tol,
+                        "laplace_val", "integrated_val");
+      }
+    }
+    if (integrate_success_sum[iter]) {
+      auto ll_laplace_all = stan::math::laplace_marginal(
+          poisson_re_log_ll_functor(), std::forward_as_tuple(y, mu),
+          cov_fun_functor(), std::tuple<double, int>(sigmaz, N), pstream);
+      stan::test::relative_tolerance sum_rel_tol(3e-2);
+      expect_near_rel("sum laplace vs integrated sum", ll_laplace,
+                      ll_integrate_1d(iter), sum_rel_tol, "laplace_sum",
+                      "integrated_sum");
+      expect_near_rel("total laplace vs integrated sum", ll_laplace_all,
+                      ll_integrate_1d(iter), sum_rel_tol, "laplace_sum",
+                      "integrated_sum");
+      EXPECT_TRUE(std::isfinite(ll_laplace)) << "Laplace result should be finite";
+      EXPECT_TRUE(std::isfinite(ll_integrate_1d(iter)))
+          << "Integrated result should be finite";
+    }
   }
 }
