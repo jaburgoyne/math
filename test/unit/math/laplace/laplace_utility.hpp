@@ -277,6 +277,13 @@ static inline std::string ParamName(
   os << "Solver" << solver << "_Block" << hblock << "_LS" << ls;
   return os.str();
 }
+static inline std::string ParamName2(
+    const ::testing::TestParamInfo<std::tuple<int, int>>& info) {
+  const auto& [solver, ls] = info.param;
+  std::ostringstream os;
+  os << "column_" << solver << "_LS_" << ls;
+  return os.str();
+}
 
 
 class bernoulli_logit_phi_dim500 : public LaplaceSolverGrid {

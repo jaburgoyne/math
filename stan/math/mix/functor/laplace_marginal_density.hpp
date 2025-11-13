@@ -691,8 +691,8 @@ inline auto laplace_marginal_density_est(
             .field("v_level", 1)
             .field("v_ns",(long long)__ls_ns)
             .field("v_alpha", curr.alpha())
-            .field("v_obj_prev", prev.obj())
-            .field("v_obj_curr", curr.obj())
+            .field("v_obj_init", prev.obj())
+            .field("v_obj_final", curr.obj())
             .field("v_solver", options.solver);
           JLOG().commit_now(JsonLogger::Level::Debug, "laplace_iter", __c);
           debug::print("", 1, "Objective old: ", prev.obj(),
