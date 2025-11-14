@@ -550,11 +550,23 @@ inline auto laplace_marginal_density_est(
   auto grad_fun = [&covariance](auto&& step) {
     return -covariance * step.a() + covariance * step.theta_grad();
   };
-  auto update_step = [&covariance, &obj_fun, &theta_grad_f, &grad_fun](
-                         auto& step_info, auto& eval_in, auto&& /* curr */, auto&& prev, auto&& p) {
-    step_info.a().noalias() = prev.a() + eval_in.alpha() * p;
-    step_info.theta().noalias() = covariance * step_info.a();
-    step_info.theta_grad().noalias() = theta_grad_f(step_info.theta());
+  auto update_step = [&covariance, &obj_fun, &theta_grad_f, &grad_fun, &line_opt = options.line_search](
+                         auto& step_info, auto& eval_in, auto&& /* curr */, auto&& prev, auto&& p) { 
+    while (true && eval_in.alpha() > line_opt.min_alpha) {
+      step_info.a().noalias() = prev.a() + eval_in.alpha() * p;
+      step_info.theta().noalias() = covariance * step_info.a();
+      try {
+        step_info.theta_grad().noalias() = theta_grad_f(step_info.theta());
+        if (!std::isfinite(eval_in.obj()) || !std::isfinite(eval_in.dir())) {
+          eval_in.alpha() *= line_opt.tau;
+          continue;
+        }
+      } catch (const std::exception& e) {
+        eval_in.alpha() *= line_opt.tau;
+        continue;
+      }
+      break;
+    }
     eval_in.obj() = obj_fun(step_info.a(), step_info.theta());
     eval_in.dir() = grad_fun(step_info).dot(p);
   };
@@ -574,19 +586,7 @@ inline auto laplace_marginal_density_est(
           }
           auto&& scratch = wolfe_info.scratch_;
           scratch.alpha() = 1.0;
-          while (true && scratch.alpha() > line_opt.min_alpha) {
-            try{
-              update_step(scratch, scratch.eval_, curr, prev, wolfe_info.p_);
-              if (!scratch.theta_grad_.allFinite() || !scratch.theta_.allFinite() ||
-              !std::isfinite(scratch.eval_.obj()) || !std::isfinite(scratch.eval_.dir())) {
-                scratch.alpha() *= line_opt.tau;
-              } else {
-                break;
-              }
-            } catch (const std::exception& e) {
-              scratch.alpha() *= line_opt.tau;
-            }
-          }
+          update_step(scratch, scratch.eval_, curr, prev, wolfe_info.p_);
           if (scratch.alpha() <= line_opt.min_alpha) {
             wolfe_status.success_ = false;
             wolfe_status.stop_ = WolfeReturn::Fail;

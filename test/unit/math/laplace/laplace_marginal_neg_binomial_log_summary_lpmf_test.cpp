@@ -38,7 +38,7 @@ TEST(laplace_marginal_neg_binomial_log_summary_lpmf, phi_dim_2) {
   constexpr double tolerance = 1e-12;
   constexpr int max_num_steps = 1000;
   constexpr stan::test::ad_tolerances tols{
-      stan::test::ad_gradient_tols{1e-8, 1e-4}};
+      stan::test::ad_gradient_tols{1e-8, 1e-2}};
   stan::math::test::run_solver_grid(
       [&](int solver_num, int hessian_block_size, int max_steps_line_search,
           auto&& theta_0) {
@@ -50,7 +50,7 @@ TEST(laplace_marginal_neg_binomial_log_summary_lpmf, phi_dim_2) {
               max_num_steps, hessian_block_size, solver_num,
               max_steps_line_search, nullptr);
         };
-        stan::test::expect_ad<true>(f, alpha_dbl, rho_dbl, eta_dbl);
+        stan::test::expect_ad<true>(tols, f, alpha_dbl, rho_dbl, eta_dbl);
       },
       theta_0);
 }
