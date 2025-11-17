@@ -553,11 +553,16 @@ inline auto laplace_marginal_density_est(
   auto update_step = [&covariance, &obj_fun, &theta_grad_f, &grad_fun, &line_opt = options.line_search](
                          auto& step_info, auto& eval_in, auto&& /* curr */, auto&& prev, auto&& p) { 
     while (true && eval_in.alpha() > line_opt.min_alpha) {
-      step_info.a().noalias() = prev.a() + eval_in.alpha() * p;
-      step_info.theta().noalias() = covariance * step_info.a();
       try {
+        step_info.a().noalias() = prev.a() + eval_in.alpha() * p;
+        step_info.theta().noalias() = covariance * step_info.a();
         step_info.theta_grad().noalias() = theta_grad_f(step_info.theta());
-        if (!std::isfinite(eval_in.obj()) || !std::isfinite(eval_in.dir())) {
+        eval_in.obj() = obj_fun(step_info.a(), step_info.theta());
+        eval_in.dir() = grad_fun(step_info).dot(p);
+        if (!std::isfinite(eval_in.obj()) || !std::isfinite(eval_in.dir()) || !step_info.theta_grad().allFinite()) {
+          std::cout << "Alpha: " << eval_in.alpha() << ", Obj: " << eval_in.obj() << ", Dir: " << eval_in.dir() << std::endl;
+          std::cout << "Theta: " << step_info.theta().transpose() << std::endl;
+          std::cout << "Theta grad: " << step_info.theta_grad().transpose() << std::endl;
           eval_in.alpha() *= line_opt.tau;
           continue;
         }
@@ -567,8 +572,6 @@ inline auto laplace_marginal_density_est(
       }
       break;
     }
-    eval_in.obj() = obj_fun(step_info.a(), step_info.theta());
-    eval_in.dir() = grad_fun(step_info).dot(p);
   };
   Eigen::VectorXd prev_g(theta_size);
   auto update_line_search
@@ -810,6 +813,7 @@ inline auto laplace_marginal_density_est(
     //    std::cout << "Solver: 3" << std::endl;
     Eigen::PartialPivLU<Eigen::MatrixXd> LU(theta_size);
     for (Eigen::Index i = 0; i <= options.max_num_steps; i++) {
+      std::cout << "Iter: " << i << std::endl;
       debug::print("======Iter", i);
       auto W = laplace_likelihood::block_hessian(
           ll_fun, prev.theta(), options.hessian_block_size, ll_args, msgs);
