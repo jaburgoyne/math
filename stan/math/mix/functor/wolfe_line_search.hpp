@@ -864,10 +864,6 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
   Eval low{0.0, prev.obj(), dir_deriv_init};
   prev.dir() = dir_deriv_init;
   int total_updates = 0;
-  auto eval_finite = [](const Eval& e, const WolfeData& state) {
-    return std::isfinite(e.obj()) && std::isfinite(e.dir())
-           && state.theta().allFinite() && state.theta_grad().allFinite();
-  };
   Eval best = low;  // keep the best Armijo-OK in case strong-Wolfe fails
   auto update_with_tick = [&total_updates, &opt, &best, &update_fun](
                               auto&& proposal, auto&& curr, auto&& prev,
@@ -895,7 +891,6 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
       = std::clamp(curr.alpha() * opt.scale_up, opt.min_alpha, opt.max_alpha);
   Eval high{alpha_start, curr.obj(), dir_deriv_init};
   WolfeStatus wolfe_check{WolfeReturn::Continue, 0, 0, false};
-  bool high_has_eval = true;
   // Initial check for numerical trouble
   {
     wolfe_check = update_with_tick(scratch, curr, prev, high, p);
@@ -920,7 +915,6 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
           if (wolfe_check.stop_ != WolfeReturn::Continue) {
             return wolfe_check;
           }
-          high_has_eval = true;
         }
         wolfe_check = update_with_tick(scratch, curr, prev, best, p);
         if (wolfe_check.stop_ != WolfeReturn::Continue) {
@@ -935,35 +929,24 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
       }
     }
   }
-  bool found_right = false;
   int num_backtracks = 0;
   /**
-   * For each case
+   * From Algorithm 3.5 page 60 of Nocedal and Wright (2006)
+   * See: https://www.math.uci.edu/~qnie/Publications/NumericalOptimization.pdf
    * | armijo     | wolfe | sign(g) | Action
    * -------+-------+---------+--------------------------------
    * | [1]  T     |   T   |         | Accept alpha
    * | [2]  T     |   F   |   > 0   | set low=high, expand high
    * | [3]  T     |   F   |   < 0   | Set alpha_high <- alpha, stop
    * | [4]  F     |   T   |         | Set alpha_high <- alpha, stop
-   * | [5]  F     |   F   |         | Set alpha_high <- alpha, stop
+   * | [5]  F     |   F   |         | Set alpha_high <- alpha_high * .5
    **/
-  while (!found_right && high.alpha() < opt.max_alpha) {
+  while (high.alpha() < opt.max_alpha) {
     num_backtracks++;
     // 1. Evaluate f(alpha) and g(alpha)
     wolfe_check = update_with_tick(scratch, curr, prev, high, p);
     if (wolfe_check.stop_ != WolfeReturn::Continue) {
       return wolfe_check;
-    }
-    high_has_eval = true;
-    const bool finite_ok = eval_finite(high, scratch);
-    // 2. Handle numerical trouble first
-    if (!finite_ok) {  //   f or g is NaN/Inf → shrink
-      high.alpha() *= 0.5;
-      high_has_eval = false;
-      if (high.alpha() < opt.min_alpha) {
-        break;
-      }
-      continue;
     }
     const bool armijo = check_armijo(high, prev, opt);
     const bool wolfe = check_wolfe(high, prev, opt);
@@ -976,14 +959,15 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
       best = high;
     }
     const bool dir_pos = high.dir() > 0;
-    if (armijo && !wolfe && dir_pos) {  // [2]
+    if (armijo && dir_pos) {  // [2]
       low = high;
       high.alpha() *= opt.scale_up;
-      high_has_eval = false;
       continue;
+    } else if (!armijo) {
+      high.alpha() *= opt.tau;
     }
     // [3,4,5]
-    found_right = true;
+    break;
   }
   const double grad_tol
       = std::max(opt.abs_grad_threshold,
@@ -1018,12 +1002,9 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
     return WolfeStatus{WolfeReturn::Continue, total_updates, num_backtracks,
                        false};
   };
-  if (!high_has_eval) {
-    wolfe_check = update_with_tick(scratch, curr, prev, high, p);
-    if (wolfe_check.stop_ != WolfeReturn::Continue) {
-      return wolfe_check;
-    }
-    high_has_eval = true;
+  wolfe_check = update_with_tick(scratch, curr, prev, high, p);
+  if (wolfe_check.stop_ != WolfeReturn::Continue) {
+    return wolfe_check;
   }
   auto check_b = check_bounds(high);
   if (check_b.stop_ != WolfeReturn::Continue) {
@@ -1031,10 +1012,6 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
       curr.update(scratch, high);
     }
     return check_b;
-  }
-  wolfe_check = update_with_tick(scratch, curr, prev, high, p);
-  if (wolfe_check.stop_ != WolfeReturn::Continue) {
-    return wolfe_check;
   }
   // Zoom phase
   while ((high.alpha() - low.alpha() > opt.min_alpha)
@@ -1071,16 +1048,18 @@ inline WolfeStatus wolfe_line_search(Info& wolfe_info, UpdateFun&& update_fun,
       if (mid.obj() > best.obj()) {
         best = mid;
       }
+      // Update bracket based on derivative sign
+      if (mid.dir() * low.dir() < 0) {
+        // sign change between low and mid -> [low, mid]
+        high = mid;
+      } else {
+        // otherwise shift left endpoint -> [mid, high]
+        low = mid;
+      }
+    } else {
+      high = mid;
     }
 
-    // Update bracket based on derivative sign
-    if (mid.dir() * low.dir() < 0) {
-      // sign change between low and mid -> [low, mid]
-      high = mid;
-    } else {
-      // otherwise shift left endpoint -> [mid, high]
-      low = mid;
-    }
 
     // Convergence/guard-rail checks (uses prev/grad_tol/obj_tol etc.)
     auto bounds_check = check_bounds(mid);
