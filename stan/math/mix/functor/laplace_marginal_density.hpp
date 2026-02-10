@@ -232,7 +232,6 @@ inline auto laplace_marginal_density(LLFun&& ll_fun, LLTupleArgs&& ll_args,
     auto md_est = internal::laplace_marginal_density_est(
         ll_fun, ll_args_vals, covariance_val, options, msgs);
     auto ll_args_filter = internal::filter_var_scalar_types(ll_args_copy);
-    // tuple of references to var types
     // Solver 1, 2
     const bool solver_1_or_2
         = md_est.solver_used == 1 || md_est.solver_used == 2;

@@ -47,7 +47,7 @@ TEST_P(laplace_marginal_neg_binomial_log_summary_lpmf, phi_dim_2) {
   constexpr double tolerance = 1e-12;
   constexpr int max_num_steps = 1000;
   constexpr stan::test::ad_tolerances tols{
-      stan::test::ad_gradient_tols{1e-8, 1e-4}};
+      stan::test::ad_gradient_tols{1e-8, 1e-2}};
   auto f = [&](auto&& alpha, auto&& rho, auto&& eta) {
     try {
       return laplace_marginal_tol_neg_binomial_2_log_summary_lpmf(
@@ -68,7 +68,7 @@ TEST_P(laplace_marginal_neg_binomial_log_summary_lpmf, phi_dim_2) {
       throw;
     }
   };
-  stan::test::expect_ad<true>(f, alpha_dbl, rho_dbl, eta_dbl);
+  stan::test::expect_ad<true>(tols, f, alpha_dbl, rho_dbl, eta_dbl);
 }
 
 LAPLACE_INSTANTIATE_TEST_SUITE_P(

@@ -136,13 +136,13 @@ inline constexpr auto tuple_to_laplace_options(Options&& ops) {
     if constexpr (!stan::is_inner_tuple_type_v<3, Ops, int>) {
       static_assert(
           sizeof(std::decay_t<Ops>*) == 0,
-          "ERROR:(laplace_marginal_lpdf) The fifth laplace argument is "
+          "ERROR:(laplace_marginal_lpdf) The fourth laplace argument is "
           "expected to be an int representing the hessian block size.");
     }
     if constexpr (!stan::is_inner_tuple_type_v<4, Ops, int>) {
       static_assert(
           sizeof(std::decay_t<Ops>*) == 0,
-          "ERROR:(laplace_marginal_lpdf) The fourth laplace argument is "
+          "ERROR:(laplace_marginal_lpdf) The fifth laplace argument is "
           "expected to be an int representing the solver.");
     }
     if constexpr (!stan::is_inner_tuple_type_v<5, Ops, int>) {
