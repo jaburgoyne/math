@@ -40,7 +40,7 @@ WORKDIR /tmp
 
 ENV OPENMPI_VERSION="4.1" OPENMPI_MINOR_VERSION="2"
 # Install doxygen
-RUN wget https://www.doxygen.nl/files/doxygen-1.9.7.linux.bin.tar.gz && \
+RUN wget https://github.com/doxygen/doxygen/releases/download/Release_1_9_7/doxygen-1.9.7.linux.bin.tar.gz && \
     tar -xzvf doxygen-1.9.7.linux.bin.tar.gz && \
     mv doxygen-1.9.7/bin/doxygen /bin/ && \
     chmod +x /bin/doxygen && \
